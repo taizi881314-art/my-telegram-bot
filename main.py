@@ -17,7 +17,7 @@ GROUP_CHAT_ID = -5136356372
 conn = sqlite3.connect("data.db", check_same_thread=False)
 c = conn.cursor()
 
-# ✅ users 不變
+# users
 c.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """)
 
-# ✅ 🔥 關鍵：stats 多存一個 group_name（歷史保存）
+# stats（保留 group_name 歷史）
 c.execute("""
 CREATE TABLE IF NOT EXISTS stats (
     user_id INTEGER,
@@ -58,6 +58,7 @@ def main_menu():
         ["👥 分組管理", "📈 分組數據"],
         ["🏆 排行榜", "📅 每月報表"],
         ["📊 分組詳細","📤 導出數據"],
+        ["📊 分組總數"]
     ], resize_keyboard=True)
 
 def group_menu():
@@ -67,9 +68,7 @@ def group_menu():
         ["🔙 返回主選單"]
     ], resize_keyboard=True)
 
-# ===============================
-# ✅🔥 修正：分組顯示（100%正確）
-# ===============================
+# ===== 分組成員 =====
 async def view_group_members(update):
     c.execute("""
         SELECT 
@@ -96,6 +95,33 @@ async def view_group_members(update):
         msg += "\n"
 
     await update.message.reply_text(msg, reply_markup=group_menu())
+
+# ===============================
+# ✅ 新增：分組總數統計
+# ===============================
+async def group_total_stats(update):
+    clean_old_data()
+
+    c.execute("""
+    SELECT IFNULL(group_name,'未分組'),
+    SUM(打粉),SUM(回復),SUM(新增),SUM(回訪),SUM(熱聊)
+    FROM stats
+    WHERE date=?
+    GROUP BY IFNULL(group_name,'未分組')
+    """,(today(),))
+
+    rows = c.fetchall()
+
+    msg = "📊 分組總數統計（今日）\n\n"
+
+    if not rows:
+        msg += "目前沒有數據"
+    else:
+        for r in rows:
+            msg += f"【{r[0]}】\n"
+            msg += f"打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n\n"
+
+    await update.message.reply_text(msg, reply_markup=main_menu())
 
 # ===== 填報選單 =====
 def report_menu():
@@ -162,7 +188,7 @@ async def ranking(update):
 
     await update.message.reply_text(msg)
 
-# ===== 分組數據（用歷史 group_name）=====
+# ===== 分組數據 =====
 async def group_rank(update):
     clean_old_data()
 
@@ -217,9 +243,7 @@ async def monthly(update):
 
     await update.message.reply_text(msg, reply_markup=main_menu())
 
-# ===============================
-# ✅🔥 核心：寫入時保存 group_name（歷史）
-# ===============================
+# ===== 填報 =====
 async def handle_report(update, context):
     text = update.message.text
     user_id = update.effective_user.id
@@ -246,7 +270,6 @@ async def handle_report(update, context):
 
         field = context.user_data["field"]
 
-        # 🔥 抓當前分組（寫進歷史）
         c.execute("SELECT group_name FROM users WHERE user_id=?", (user_id,))
         group = c.fetchone()[0]
 
@@ -270,13 +293,16 @@ async def handle_report(update, context):
 
     return False
 
-# ===== handle（完全不動）=====
+# ===== handle =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
     if text in ["🔙 返回主選單", "返回主選單"]:
         context.user_data.clear()
         return await update.message.reply_text("返回主選單", reply_markup=main_menu())
+
+    if text == "📊 分組總數":
+        return await group_total_stats(update)
 
     if text == "📅 每月報表":
         return await monthly(update)
@@ -299,7 +325,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "查看分組成員" in text:
         return await view_group_members(update)
 
+    # 🔒 限制建立分組
     if text == "➕ 建立分組":
+        if update.effective_user.id != ADMIN_ID:
+            return await update.message.reply_text("❌ 只有群主可以建立分組")
         context.user_data["mode"] = "create_group"
         return await update.message.reply_text("請輸入分組名稱")
 
