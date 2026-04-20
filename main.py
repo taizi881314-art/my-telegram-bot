@@ -261,6 +261,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "📝 填報數據":
         return await update.message.reply_text("選擇項目", reply_markup=report_menu())
 
+    # ✅🔥 修正：先判斷每月報表（避免被 handle_report 吃掉）
+    if text == "📅 每月報表":
+        return await monthly(update)
+
+    # 🔽 原本這段往下移
     handled = await handle_report(update, context)
     if handled:
         return
@@ -302,9 +307,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "📈 分組數據":
         return await group_rank(update)
-
-    if text == "📅 每月報表":
-        return await monthly(update)
 
     if text == "📊 分組詳細":
         return await group_detail(update, context)
