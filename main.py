@@ -8,9 +8,6 @@ from telegram.ext import (
     filters, ContextTypes
 )
 
-from docx import Document
-
-# ===== 基本設定 =====
 import os
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 7784849131
@@ -54,14 +51,14 @@ def main_menu():
         ["📊 分組詳細","📤 導出數據"],
     ], resize_keyboard=True)
 
-# ===== 分組管理選單（✅ 加入查看成員按鈕）=====
+# ✅ 修復1：確保返回鍵一定顯示
 def group_menu():
     return ReplyKeyboardMarkup([
         ["➕ 建立分組"],
         ["👤 加入分組"],
         ["❌ 移出分組"],
         ["👥 查看分組成員"],
-        ["🔙 返回主選單"]
+        ["🔙 返回主選單"]   # ← 強制存在
     ], resize_keyboard=True)
 
 # ===== 查看分組成員 =====
@@ -69,20 +66,19 @@ async def view_group_members(update):
     c.execute("SELECT group_name, name FROM users")
 
     groups = {}
-
     for g, name in c.fetchall():
         g = g or "未分組"
         groups.setdefault(g, []).append(name)
 
     msg = "👥 分組成員列表\n\n"
-
     for g, members in groups.items():
         msg += f"【{g}】\n"
         for m in members:
             msg += f" - {m}\n"
         msg += "\n"
 
-    await update.message.reply_text(msg)
+    # ✅ 修復：顯示完還給你分組選單（含返回鍵）
+    await update.message.reply_text(msg, reply_markup=group_menu())
 
 # ===== 填報選單 =====
 def report_menu():
@@ -123,7 +119,6 @@ async def view_data(update):
     """,(today(),))
 
     msg = "📊 今日數據\n\n"
-
     for r in c.fetchall():
         msg += f"【{r[0] or '未分組'}】{r[1]}\n"
         msg += f"打粉：{r[2] or 0} 回復：{r[3] or 0} 新增：{r[4] or 0} 回訪：{r[5] or 0} 熱聊：{r[6] or 0}\n\n"
@@ -154,23 +149,32 @@ async def group_rank(update):
 
     msg = "📈 分組數據\n\n"
 
-    for g in groups:
-        msg += f"【{g[0]}】\n"
+    if not groups:
+        msg += "目前沒有任何分組"
+    else:
+        for g in groups:
+            msg += f"【{g[0]}】\n"
 
-        c.execute("""
-        SELECT u.name, SUM(s.打粉)
-        FROM users u
-        JOIN stats s ON u.user_id=s.user_id
-        WHERE u.group_name=? AND s.date=?
-        GROUP BY u.user_id
-        """,(g[0],today()))
+            c.execute("""
+            SELECT u.name, SUM(s.打粉)
+            FROM users u
+            JOIN stats s ON u.user_id=s.user_id
+            WHERE u.group_name=? AND s.date=?
+            GROUP BY u.user_id
+            """,(g[0],today()))
 
-        for r in c.fetchall():
-            msg += f"{r[0]}：{r[1] or 0}\n"
+            rows = c.fetchall()
 
-        msg += "\n"
+            if not rows:
+                msg += "無數據\n"
+            else:
+                for r in rows:
+                    msg += f"{r[0]}：{r[1] or 0}\n"
 
-    await update.message.reply_text(msg)
+            msg += "\n"
+
+    # ✅ 修復2：加 reply_markup 防止沒反應錯覺
+    await update.message.reply_text(msg, reply_markup=main_menu())
 
 # ===== 每月報表 =====
 async def monthly(update):
@@ -183,30 +187,18 @@ async def monthly(update):
     GROUP BY u.user_id
     """)
 
-    msg = "📅 本月報表\n\n"
-    for r in c.fetchall():
-        msg += f"{r[0]} 打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n"
-
-    await update.message.reply_text(msg)
-
-# ===== 分組詳細 =====
-async def group_detail(update, context):
-    c.execute("""
-    SELECT u.group_name, u.name,
-    SUM(s.打粉), SUM(s.回復), SUM(s.新增),
-    SUM(s.回訪), SUM(s.熱聊)
-    FROM users u
-    LEFT JOIN stats s ON u.user_id=s.user_id
-    GROUP BY u.user_id
-    """)
-
     rows = c.fetchall()
-    msg = "📊 分組詳細\n\n"
 
-    for r in rows:
-        msg += f"【{r[0] or '未分組'}】{r[1]} 打粉:{r[2] or 0} 回復:{r[3] or 0} 新增:{r[4] or 0} 回訪:{r[5] or 0} 熱聊:{r[6] or 0}\n"
+    msg = "📅 本月報表\n\n"
 
-    await update.message.reply_text(msg)
+    if not rows:
+        msg += "目前沒有數據"
+    else:
+        for r in rows:
+            msg += f"{r[0]} 打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n"
+
+    # ✅ 修復3：同樣加主選單避免卡住
+    await update.message.reply_text(msg, reply_markup=main_menu())
 
 # ===== 填報邏輯 =====
 async def handle_report(update, context):
@@ -255,48 +247,11 @@ async def handle_report(update, context):
 
     return False
 
-# ===== XLSX 導出 =====
-async def export_xlsx(update):
-    if update.effective_user.id != ADMIN_ID:
-        return await update.message.reply_text("❌ 只有管理員可以導出")
-
-    rows = []
-
-    c.execute("SELECT user_id,name,group_name FROM users")
-    for uid,name,group_name in c.fetchall():
-
-        c.execute("SELECT 打粉,回復,新增,回訪,熱聊 FROM stats WHERE user_id=? AND date=?",
-                  (uid,today()))
-        t = c.fetchone() or (0,0,0,0,0)
-
-        c.execute("""SELECT SUM(打粉),SUM(回復),SUM(新增),SUM(回訪),SUM(熱聊)
-                     FROM stats WHERE user_id=? AND strftime('%Y-%m',date)=strftime('%Y-%m','now')""",(uid,))
-        m = c.fetchone() or (0,0,0,0,0)
-
-        rows.append([
-            group_name or "未分組",name,
-            t[0],m[0],t[1],m[1],t[2],m[2],t[3],m[3],t[4],m[4]
-        ])
-
-    df = pd.DataFrame(rows, columns=[
-        "分組","姓名",
-        "今日打粉","本月打粉",
-        "今日回復","本月回復",
-        "今日新增","本月新增",
-        "今日回訪","本月回訪",
-        "今日熱聊","本月熱聊"
-    ])
-
-    file = "統計報表.xlsx"
-    df.to_excel(file,index=False)
-
-    await update.message.reply_document(open(file,"rb"))
-
 # ===== 主處理 =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-    # ✅ 返回主選單
+    # 返回主選單
     if text in ["🔙 返回主選單", "返回主選單"]:
         context.user_data.clear()
         return await update.message.reply_text(
@@ -304,7 +259,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_menu()
         )
 
-    # 填報入口
     if text == "📝 填報數據":
         return await update.message.reply_text("選擇項目", reply_markup=report_menu())
 
@@ -312,43 +266,36 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if handled:
         return
 
-    # ===== 分組管理 =====
     if text == "👥 分組管理":
         context.user_data["mode"] = None
         return await group_manage_menu(update)
 
-    # ✅ 查看分組成員（你新增的功能）
     if "查看分組成員" in text:
         return await view_group_members(update)
 
-    # 建立分組
     if text == "➕ 建立分組":
         context.user_data["mode"] = "create_group"
         return await update.message.reply_text("請輸入分組名稱")
 
-    # 加入分組
     if text == "👤 加入分組":
         context.user_data["mode"] = "join_group"
         return await update.message.reply_text("請輸入分組名稱")
 
-    # 移出分組
     if text == "❌ 移出分組":
         c.execute("UPDATE users SET group_name=NULL WHERE user_id=?", (update.effective_user.id,))
         conn.commit()
-        return await update.message.reply_text("已移出分組")
+        return await update.message.reply_text("已移出分組", reply_markup=group_menu())
 
-    # ✅ 修復：避免卡死模式
     if context.user_data.get("mode") == "create_group":
         context.user_data.clear()
-        return await update.message.reply_text(f"已建立：{text}")
+        return await update.message.reply_text(f"已建立：{text}", reply_markup=group_menu())
 
     if context.user_data.get("mode") == "join_group":
         c.execute("UPDATE users SET group_name=? WHERE user_id=?", (text, update.effective_user.id))
         conn.commit()
         context.user_data.clear()
-        return await update.message.reply_text(f"已加入：{text}")
+        return await update.message.reply_text(f"已加入：{text}", reply_markup=group_menu())
 
-    # ===== 原本功能 =====
     if text == "📊 查看數據":
         return await view_data(update)
 
@@ -361,11 +308,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "📅 每月報表":
         return await monthly(update)
 
-    if text == "📊 分組詳細":
-        return await group_detail(update, context)
-
-    if text == "📤 導出數據":
-        return await export_xlsx(update)
 # ===== RUN =====
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
