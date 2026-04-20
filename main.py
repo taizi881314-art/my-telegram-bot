@@ -51,14 +51,14 @@ def main_menu():
         ["📊 分組詳細","📤 導出數據"],
     ], resize_keyboard=True)
 
-# ✅ 修復1：確保返回鍵一定顯示
+# ===== 分組選單 =====
 def group_menu():
     return ReplyKeyboardMarkup([
         ["➕ 建立分組"],
         ["👤 加入分組"],
         ["❌ 移出分組"],
         ["👥 查看分組成員"],
-        ["🔙 返回主選單"]   # ← 強制存在
+        ["🔙 返回主選單"]
     ], resize_keyboard=True)
 
 # ===== 查看分組成員 =====
@@ -71,13 +71,14 @@ async def view_group_members(update):
         groups.setdefault(g, []).append(name)
 
     msg = "👥 分組成員列表\n\n"
+
     for g, members in groups.items():
         msg += f"【{g}】\n"
         for m in members:
             msg += f" - {m}\n"
         msg += "\n"
 
-    # ✅ 修復：顯示完還給你分組選單（含返回鍵）
+    # ✅ 保證返回鍵存在
     await update.message.reply_text(msg, reply_markup=group_menu())
 
 # ===== 填報選單 =====
@@ -101,7 +102,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu()
     )
 
-# ===== 分組管理入口 =====
+# ===== 分組入口 =====
 async def group_manage_menu(update):
     await update.message.reply_text(
         "👥 分組管理\n請選擇功能",
@@ -119,6 +120,7 @@ async def view_data(update):
     """,(today(),))
 
     msg = "📊 今日數據\n\n"
+
     for r in c.fetchall():
         msg += f"【{r[0] or '未分組'}】{r[1]}\n"
         msg += f"打粉：{r[2] or 0} 回復：{r[3] or 0} 新增：{r[4] or 0} 回訪：{r[5] or 0} 熱聊：{r[6] or 0}\n\n"
@@ -142,7 +144,7 @@ async def ranking(update):
 
     await update.message.reply_text(msg)
 
-# ===== 分組數據 =====
+# ===== 分組數據（修復）=====
 async def group_rank(update):
     c.execute("SELECT DISTINCT group_name FROM users WHERE group_name IS NOT NULL")
     groups = c.fetchall()
@@ -173,10 +175,10 @@ async def group_rank(update):
 
             msg += "\n"
 
-    # ✅ 修復2：加 reply_markup 防止沒反應錯覺
+    # ✅ 防止看起來沒反應
     await update.message.reply_text(msg, reply_markup=main_menu())
 
-# ===== 每月報表 =====
+# ===== 每月報表（修復）=====
 async def monthly(update):
     c.execute("""
     SELECT u.name,
@@ -197,10 +199,9 @@ async def monthly(update):
         for r in rows:
             msg += f"{r[0]} 打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n"
 
-    # ✅ 修復3：同樣加主選單避免卡住
     await update.message.reply_text(msg, reply_markup=main_menu())
 
-# ===== 填報邏輯 =====
+# ===== 填報 =====
 async def handle_report(update, context):
     text = update.message.text
     user_id = update.effective_user.id
@@ -219,11 +220,7 @@ async def handle_report(update, context):
         return True
 
     if "field" in context.user_data:
-        try:
-            value = int(text)
-        except:
-            await update.message.reply_text("請輸入數字")
-            return True
+        value = int(text)
 
         field = context.user_data["field"]
 
@@ -251,13 +248,9 @@ async def handle_report(update, context):
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-    # 返回主選單
     if text in ["🔙 返回主選單", "返回主選單"]:
         context.user_data.clear()
-        return await update.message.reply_text(
-            "返回主選單",
-            reply_markup=main_menu()
-        )
+        return await update.message.reply_text("返回主選單", reply_markup=main_menu())
 
     if text == "📝 填報數據":
         return await update.message.reply_text("選擇項目", reply_markup=report_menu())
@@ -267,7 +260,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "👥 分組管理":
-        context.user_data["mode"] = None
         return await group_manage_menu(update)
 
     if "查看分組成員" in text:
