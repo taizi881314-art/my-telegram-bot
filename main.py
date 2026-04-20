@@ -66,7 +66,7 @@ def group_menu():
         ["🔙 返回主選單"]
     ], resize_keyboard=True)
 
-# ===== ✅ 新增：填報選單 =====
+# ===== 填報選單 =====
 def report_menu():
     return ReplyKeyboardMarkup([
         ["今日打粉","今日回復"],
@@ -171,7 +171,7 @@ async def monthly(update):
 
     await update.message.reply_text(msg)
 
-# ===== 分組詳細（修正）=====
+# ===== 分組詳細 =====
 async def group_detail(update, context):
     c.execute("""
     SELECT u.group_name, u.name,
@@ -190,7 +190,7 @@ async def group_detail(update, context):
 
     await update.message.reply_text(msg)
 
-# ===== ✅ 新增：填報邏輯 =====
+# ===== 填報邏輯 =====
 async def handle_report(update, context):
     text = update.message.text
     user_id = update.effective_user.id
@@ -237,32 +237,7 @@ async def handle_report(update, context):
 
     return False
 
-# ===== 原 DOCX 導出（保留）=====
-async def export_doc(update):
-    if update.effective_user.id != ADMIN_ID:
-        return await update.message.reply_text("❌ 只有群主可以導出")
-
-    doc = Document()
-    doc.add_heading('打粉統計報表', 0)
-
-    c.execute("""
-    SELECT u.group_name, u.name,
-    SUM(s.打粉), SUM(s.回復), SUM(s.新增),
-    SUM(s.回訪), SUM(s.熱聊)
-    FROM users u
-    LEFT JOIN stats s ON u.user_id=s.user_id
-    GROUP BY u.user_id
-    """)
-
-    for r in c.fetchall():
-        doc.add_paragraph(f"{r[0] or '未分組'} {r[1]} 打粉:{r[2]}")
-
-    file = "報表.docx"
-    doc.save(file)
-
-    await update.message.reply_document(open(file, "rb"))
-
-# ===== ✅ 新增 XLSX 導出 =====
+# ===== XLSX 導出 =====
 async def export_xlsx(update):
     if update.effective_user.id != ADMIN_ID:
         return await update.message.reply_text("❌ 只有管理員可以導出")
@@ -303,6 +278,14 @@ async def export_xlsx(update):
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
+    # ✅【修改1：返回主選單】
+    if text in ["🔙 返回主選單", "返回主選單"]:
+        context.user_data.clear()
+        return await update.message.reply_text(
+            "返回主選單",
+            reply_markup=main_menu()
+        )
+
     # 填報入口
     if text == "📝 填報數據":
         return await update.message.reply_text("選擇項目", reply_markup=report_menu())
@@ -311,7 +294,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if handled:
         return
 
-    # 分組管理（原本保留 + 修正）
+    # 分組管理
     if text == "👥 分組管理":
         context.user_data["mode"] = None
         return await group_manage_menu(update)
@@ -329,14 +312,15 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         return await update.message.reply_text("已移出分組")
 
+    # ✅【修改2：避免卡死模式】
     if context.user_data.get("mode") == "create_group":
-        context.user_data["mode"] = None
+        context.user_data.clear()
         return await update.message.reply_text(f"已建立：{text}")
 
     if context.user_data.get("mode") == "join_group":
         c.execute("UPDATE users SET group_name=? WHERE user_id=?",(text,update.effective_user.id))
         conn.commit()
-        context.user_data["mode"] = None
+        context.user_data.clear()
         return await update.message.reply_text(f"已加入：{text}")
 
     # 原功能
