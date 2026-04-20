@@ -45,9 +45,6 @@ conn.commit()
 def today():
     return datetime.now().strftime("%Y-%m-%d")
 
-def month():
-    return datetime.now().strftime("%Y-%m")
-
 # ===== 主選單 =====
 def main_menu():
     return ReplyKeyboardMarkup([
@@ -57,14 +54,35 @@ def main_menu():
         ["📊 分組詳細","📤 導出數據"],
     ], resize_keyboard=True)
 
-# ===== 分組管理選單 =====
+# ===== 分組管理選單（✅ 加入查看成員按鈕）=====
 def group_menu():
     return ReplyKeyboardMarkup([
         ["➕ 建立分組"],
         ["👤 加入分組"],
         ["❌ 移出分組"],
+        ["👥 查看分組成員"],
         ["🔙 返回主選單"]
     ], resize_keyboard=True)
+
+# ===== 查看分組成員 =====
+async def view_group_members(update):
+    c.execute("SELECT group_name, name FROM users")
+
+    groups = {}
+
+    for g, name in c.fetchall():
+        g = g or "未分組"
+        groups.setdefault(g, []).append(name)
+
+    msg = "👥 分組成員列表\n\n"
+
+    for g, members in groups.items():
+        msg += f"【{g}】\n"
+        for m in members:
+            msg += f" - {m}\n"
+        msg += "\n"
+
+    await update.message.reply_text(msg)
 
 # ===== 填報選單 =====
 def report_menu():
@@ -274,19 +292,14 @@ async def export_xlsx(update):
 
     await update.message.reply_document(open(file,"rb"))
 
-# ===== 主處理 =====
+# ===== 主處理（已修好）=====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-    # ✅【修改1：返回主選單】
     if text in ["🔙 返回主選單", "返回主選單"]:
         context.user_data.clear()
-        return await update.message.reply_text(
-            "返回主選單",
-            reply_markup=main_menu()
-        )
+        return await update.message.reply_text("返回主選單", reply_markup=main_menu())
 
-    # 填報入口
     if text == "📝 填報數據":
         return await update.message.reply_text("選擇項目", reply_markup=report_menu())
 
@@ -294,10 +307,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if handled:
         return
 
-    # 分組管理
     if text == "👥 分組管理":
         context.user_data["mode"] = None
         return await group_manage_menu(update)
+
+    if "查看分組成員" in text:
+        return await view_group_members(update)
 
     if text == "➕ 建立分組":
         context.user_data["mode"] = "create_group"
@@ -312,7 +327,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         return await update.message.reply_text("已移出分組")
 
-    # ✅【修改2：避免卡死模式】
     if context.user_data.get("mode") == "create_group":
         context.user_data.clear()
         return await update.message.reply_text(f"已建立：{text}")
@@ -323,7 +337,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return await update.message.reply_text(f"已加入：{text}")
 
-    # 原功能
     if text == "📊 查看數據":
         return await view_data(update)
 
@@ -344,8 +357,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===== RUN =====
 app = ApplicationBuilder().token(TOKEN).build()
-
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-
 app.run_polling()
