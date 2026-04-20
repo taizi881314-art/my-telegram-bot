@@ -58,23 +58,40 @@ def group_menu():
         ["🔙 返回主選單"]
     ], resize_keyboard=True)
 
+# ===============================
+# ✅🔥 唯一修改：修正分組顯示
+# ===============================
 async def view_group_members(update):
-    c.execute("SELECT group_name, name FROM users")
+    c.execute("""
+        SELECT 
+            CASE 
+                WHEN group_name IS NULL OR group_name = '' 
+                THEN '未分組' 
+                ELSE group_name 
+            END,
+            name
+        FROM users
+        ORDER BY 1
+    """)
 
     groups = {}
     for g, name in c.fetchall():
-        g = g or "未分組"
         groups.setdefault(g, []).append(name)
 
     msg = "👥 分組成員列表\n\n"
-    for g, members in groups.items():
-        msg += f"【{g}】\n"
-        for m in members:
-            msg += f" - {m}\n"
-        msg += "\n"
+
+    if not groups:
+        msg += "目前沒有任何成員"
+    else:
+        for g, members in groups.items():
+            msg += f"【{g}】\n"
+            for m in members:
+                msg += f" - {m}\n"
+            msg += "\n"
 
     await update.message.reply_text(msg, reply_markup=group_menu())
 
+# ===== 填報選單 =====
 def report_menu():
     return ReplyKeyboardMarkup([
         ["今日打粉","今日回復"],
@@ -82,6 +99,7 @@ def report_menu():
         ["今日熱聊","🔙 返回主選單"]
     ], resize_keyboard=True)
 
+# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
@@ -160,7 +178,7 @@ async def group_rank(update):
 
     await update.message.reply_text(msg, reply_markup=main_menu())
 
-# ✅ 已修好的每月報表（保留）
+# ===== 每月報表（你已修好）=====
 async def monthly(update):
     c.execute("""
     SELECT u.name,
@@ -247,18 +265,14 @@ async def handle_report(update, context):
 
     return False
 
-# ===============================
-# ✅🔥 穩定版 handle（唯一修改）
-# ===============================
+# ===== handle（穩定版你原本的）=====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-    # 1️⃣ 全局返回
     if text in ["🔙 返回主選單", "返回主選單"]:
         context.user_data.clear()
         return await update.message.reply_text("返回主選單", reply_markup=main_menu())
 
-    # 2️⃣ 所有按鈕優先（完全避免衝突）
     if text == "📅 每月報表":
         return await monthly(update)
 
@@ -280,7 +294,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "📝 填報數據":
         return await update.message.reply_text("選擇項目", reply_markup=report_menu())
 
-    # 3️⃣ 分組功能
     if "查看分組成員" in text:
         return await view_group_members(update)
 
@@ -307,7 +320,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return await update.message.reply_text(f"已加入：{text}", reply_markup=group_menu())
 
-    # 4️⃣ 最後才處理輸入（關鍵）
     handled = await handle_report(update, context)
     if handled:
         return
