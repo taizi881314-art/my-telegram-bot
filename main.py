@@ -225,7 +225,7 @@ async def export_doc(update):
     await update.message.reply_document(open(file, "rb"))
 
 # ===== 主處理 =====
-async def handle(update: Update, context):
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
     # ===== 分組管理入口 =====
