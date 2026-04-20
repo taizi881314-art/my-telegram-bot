@@ -12,7 +12,7 @@ from docx import Document
 
 # ===== 基本設定 =====
 import os
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = os.getenv("7973372205:AAE7kKNcmNKtxzCJieSeLTCLkaV2btODFDY")
 ADMIN_ID = 7784849131
 GROUP_CHAT_ID = -5136356372
 
