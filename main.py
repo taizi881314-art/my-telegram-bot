@@ -51,13 +51,11 @@ def main_menu():
         ["📊 分組詳細","📤 導出數據"],
     ], resize_keyboard=True)
 
-# ===== 分組選單 =====
+# ✅ 修正1：UI排版（返回鍵一定顯示）
 def group_menu():
     return ReplyKeyboardMarkup([
-        ["➕ 建立分組"],
-        ["👤 加入分組"],
-        ["❌ 移出分組"],
-        ["👥 查看分組成員"],
+        ["➕ 建立分組", "👤 加入分組"],
+        ["❌ 移出分組", "👥 查看分組成員"],
         ["🔙 返回主選單"]
     ], resize_keyboard=True)
 
@@ -71,14 +69,12 @@ async def view_group_members(update):
         groups.setdefault(g, []).append(name)
 
     msg = "👥 分組成員列表\n\n"
-
     for g, members in groups.items():
         msg += f"【{g}】\n"
         for m in members:
             msg += f" - {m}\n"
         msg += "\n"
 
-    # ✅ 保證返回鍵存在
     await update.message.reply_text(msg, reply_markup=group_menu())
 
 # ===== 填報選單 =====
@@ -144,41 +140,37 @@ async def ranking(update):
 
     await update.message.reply_text(msg)
 
-# ===== 分組數據（修復）=====
+# ===== 分組數據 =====
 async def group_rank(update):
-    c.execute("SELECT DISTINCT group_name FROM users WHERE group_name IS NOT NULL")
+    c.execute("SELECT DISTINCT IFNULL(group_name,'未分組') FROM users")
     groups = c.fetchall()
 
     msg = "📈 分組數據\n\n"
 
-    if not groups:
-        msg += "目前沒有任何分組"
-    else:
-        for g in groups:
-            msg += f"【{g[0]}】\n"
+    for g in groups:
+        msg += f"【{g[0]}】\n"
 
-            c.execute("""
-            SELECT u.name, SUM(s.打粉)
-            FROM users u
-            JOIN stats s ON u.user_id=s.user_id
-            WHERE u.group_name=? AND s.date=?
-            GROUP BY u.user_id
-            """,(g[0],today()))
+        c.execute("""
+        SELECT u.name, SUM(s.打粉)
+        FROM users u
+        LEFT JOIN stats s ON u.user_id=s.user_id
+        WHERE IFNULL(u.group_name,'未分組')=? AND s.date=?
+        GROUP BY u.user_id
+        """,(g[0],today()))
 
-            rows = c.fetchall()
+        rows = c.fetchall()
 
-            if not rows:
-                msg += "無數據\n"
-            else:
-                for r in rows:
-                    msg += f"{r[0]}：{r[1] or 0}\n"
+        if not rows:
+            msg += "無數據\n"
+        else:
+            for r in rows:
+                msg += f"{r[0]}：{r[1] or 0}\n"
 
-            msg += "\n"
+        msg += "\n"
 
-    # ✅ 防止看起來沒反應
     await update.message.reply_text(msg, reply_markup=main_menu())
 
-# ===== 每月報表（修復）=====
+# ===== 每月報表 =====
 async def monthly(update):
     c.execute("""
     SELECT u.name,
@@ -189,15 +181,29 @@ async def monthly(update):
     GROUP BY u.user_id
     """)
 
-    rows = c.fetchall()
-
     msg = "📅 本月報表\n\n"
 
-    if not rows:
-        msg += "目前沒有數據"
-    else:
-        for r in rows:
-            msg += f"{r[0]} 打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n"
+    for r in c.fetchall():
+        msg += f"{r[0]} 打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n"
+
+    await update.message.reply_text(msg, reply_markup=main_menu())
+
+# ===== 分組詳細（修正2：NULL分組顯示）=====
+async def group_detail(update, context):
+    c.execute("""
+    SELECT IFNULL(u.group_name,'未分組'), u.name,
+    SUM(s.打粉), SUM(s.回復), SUM(s.新增),
+    SUM(s.回訪), SUM(s.熱聊)
+    FROM users u
+    LEFT JOIN stats s ON u.user_id=s.user_id
+    GROUP BY u.user_id
+    """)
+
+    rows = c.fetchall()
+    msg = "📊 分組詳細\n\n"
+
+    for r in rows:
+        msg += f"【{r[0]}】{r[1]} 打粉:{r[2] or 0} 回復:{r[3] or 0} 新增:{r[4] or 0} 回訪:{r[5] or 0} 熱聊:{r[6] or 0}\n"
 
     await update.message.reply_text(msg, reply_markup=main_menu())
 
@@ -299,6 +305,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "📅 每月報表":
         return await monthly(update)
+
+    if text == "📊 分組詳細":
+        return await group_detail(update, context)
 
 # ===== RUN =====
 app = ApplicationBuilder().token(TOKEN).build()
