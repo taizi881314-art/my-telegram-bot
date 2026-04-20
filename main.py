@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 
 from telegram import ReplyKeyboardMarkup, Update
@@ -42,6 +42,14 @@ conn.commit()
 def today():
     return datetime.now().strftime("%Y-%m-%d")
 
+# ===============================
+# ✅ 新增：自動清除30天前數據
+# ===============================
+def clean_old_data():
+    limit_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    c.execute("DELETE FROM stats WHERE date < ?", (limit_date,))
+    conn.commit()
+
 # ===== 主選單 =====
 def main_menu():
     return ReplyKeyboardMarkup([
@@ -59,7 +67,7 @@ def group_menu():
     ], resize_keyboard=True)
 
 # ===============================
-# ✅🔥 唯一修改：修正分組顯示
+# ✅🔥 修正：分組顯示正確歸類
 # ===============================
 async def view_group_members(update):
     c.execute("""
@@ -68,10 +76,10 @@ async def view_group_members(update):
                 WHEN group_name IS NULL OR group_name = '' 
                 THEN '未分組' 
                 ELSE group_name 
-            END,
+            END AS g,
             name
         FROM users
-        ORDER BY 1
+        ORDER BY g
     """)
 
     groups = {}
@@ -119,6 +127,8 @@ async def group_manage_menu(update):
     )
 
 async def view_data(update):
+    clean_old_data()  # ✅ 每次查詢順便清理
+
     c.execute("""
     SELECT u.group_name, u.name,
     s.打粉,s.回復,s.新增,s.回訪,s.熱聊
@@ -135,6 +145,8 @@ async def view_data(update):
     await update.message.reply_text(msg)
 
 async def ranking(update):
+    clean_old_data()  # ✅ 清理
+
     c.execute("""
     SELECT u.name, SUM(s.打粉)
     FROM users u
@@ -151,6 +163,8 @@ async def ranking(update):
     await update.message.reply_text(msg)
 
 async def group_rank(update):
+    clean_old_data()  # ✅ 清理
+
     c.execute("SELECT DISTINCT IFNULL(group_name,'未分組') FROM users")
     groups = c.fetchall()
 
@@ -178,8 +192,10 @@ async def group_rank(update):
 
     await update.message.reply_text(msg, reply_markup=main_menu())
 
-# ===== 每月報表（你已修好）=====
+# ===== 每月報表 =====
 async def monthly(update):
+    clean_old_data()  # ✅ 清理
+
     c.execute("""
     SELECT u.name,
     SUM(s.打粉),SUM(s.回復),SUM(s.新增),SUM(s.回訪),SUM(s.熱聊)
@@ -265,7 +281,7 @@ async def handle_report(update, context):
 
     return False
 
-# ===== handle（穩定版你原本的）=====
+# ===== handle（原樣保留）=====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
