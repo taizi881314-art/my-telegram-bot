@@ -11,7 +11,8 @@ from telegram.ext import (
 from docx import Document
 
 # ===== 基本設定 =====
-TOKEN = "7973372205:AAE7kKNcmNKtxzCJieSeLTCLkaV2btODFDY"
+import os
+TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 7784849131
 GROUP_CHAT_ID = -5136356372
 
