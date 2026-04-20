@@ -169,19 +169,79 @@ async def monthly(update):
 
     await update.message.reply_text(msg)
 
+# ===== 分組詳細 =====
+async def group_detail(update):
+    c.execute("""
+    SELECT u.group_name, u.name,
+    SUM(s.打粉), SUM(s.回復), SUM(s.新增),
+    SUM(s.回訪), SUM(s.熱聊)
+    FROM users u
+    LEFT JOIN stats s ON u.user_id=s.user_id
+    GROUP BY u.user_id
+    """)
+
+    rows = c.fetchall()
+    groups = {}
+
+    for r in rows:
+        g = r[0] or "未分組"
+        groups.setdefault(g, []).append(r)
+
+    msg = "📊 分組詳細\n\n"
+
+    for g, members in groups.items():
+        msg += f"【{g}】\n"
+        for m in members:
+            msg += f"{m[1]} 打粉:{m[2] or 0} 回復:{m[3] or 0} 新增:{m[4] or 0} 回訪:{m[5] or 0} 熱聊:{m[6] or 0}\n"
+        msg += "\n"
+
+    await update.message.reply_text(msg)
+
+# ===== 導出 Excel =====
+async def export_excel(update):
+    if update.effective_user.id != ADMIN_ID:
+        return await update.message.reply_text("❌ 只有管理員可以導出")
+
+    c.execute("""
+    SELECT u.group_name, u.name, s.date,
+    s.打粉, s.回復, s.新增, s.回訪, s.熱聊
+    FROM users u
+    LEFT JOIN stats s ON u.user_id = s.user_id
+    """)
+
+    rows = c.fetchall()
+
+    if not rows:
+        return await update.message.reply_text("❌ 沒有資料")
+
+    df = pd.DataFrame(rows, columns=[
+        "分組", "姓名", "日期",
+        "打粉", "回復", "新增", "回訪", "熱聊"
+    ])
+
+    df["日期"] = pd.to_datetime(df["日期"])
+    current_month = datetime.now().strftime("%Y-%m")
+    df_month = df[df["日期"].dt.strftime("%Y-%m") == current_month]
+
+    summary = df_month.groupby(["分組","姓名"])[["打粉","回復","新增","回訪","熱聊"]].sum().reset_index()
+
+    file = "統計報表.xlsx"
+
+    with pd.ExcelWriter(file, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name="每日數據", index=False)
+        summary.to_excel(writer, sheet_name="本月統計", index=False)
+
+    await update.message.reply_document(open(file, "rb"))
+
 # ===== 主處理 =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-    # ===== 填報入口 =====
+    # ===== 填報 =====
     if text == "📝 填報數據":
         context.user_data["mode"] = "report_select"
-        return await update.message.reply_text(
-            "請選擇要填報的項目",
-            reply_markup=report_menu()
-        )
+        return await update.message.reply_text("請選擇項目", reply_markup=report_menu())
 
-    # ===== 選擇填報類型 =====
     if context.user_data.get("mode") == "report_select":
         mapping = {
             "📌 今日打粉": "打粉",
@@ -190,46 +250,34 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔁 今日回訪": "回訪",
             "🔥 今日熱聊": "熱聊",
         }
-
         if text in mapping:
             context.user_data["mode"] = "report_input"
             context.user_data["field"] = mapping[text]
-            return await update.message.reply_text(f"請輸入 {mapping[text]} 數量")
+            return await update.message.reply_text("請輸入數量")
 
-    # ===== 輸入數值 =====
     if context.user_data.get("mode") == "report_input":
-        field = context.user_data.get("field")
-
         try:
             value = int(text)
         except:
             return await update.message.reply_text("❌ 請輸入數字")
 
+        field = context.user_data.get("field")
         user_id = update.effective_user.id
 
-        c.execute("SELECT * FROM stats WHERE user_id=? AND date=?",
-                  (user_id, today()))
+        c.execute("SELECT * FROM stats WHERE user_id=? AND date=?", (user_id, today()))
         row = c.fetchone()
 
         if row:
-            c.execute(f"""
-            UPDATE stats SET {field} = {field} + ?
-            WHERE user_id=? AND date=?
-            """, (value, user_id, today()))
+            c.execute(f"UPDATE stats SET {field}={field}+? WHERE user_id=? AND date=?",
+                      (value, user_id, today()))
         else:
-            c.execute(f"""
-            INSERT INTO stats (user_id, date, {field})
-            VALUES (?, ?, ?)
-            """, (user_id, today(), value))
+            c.execute(f"INSERT INTO stats (user_id,date,{field}) VALUES (?,?,?)",
+                      (user_id, today(), value))
 
         conn.commit()
-
         context.user_data["mode"] = None
 
-        return await update.message.reply_text(
-            f"✅ 已記錄 {field}：{value}",
-            reply_markup=main_menu()
-        )
+        return await update.message.reply_text(f"✅ 已記錄 {field}:{value}", reply_markup=main_menu())
 
     # ===== 其他功能 =====
     if text == "📊 查看數據":
@@ -243,6 +291,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "📅 每月報表":
         return await monthly(update)
+
+    if text == "📊 分組詳細":
+        return await group_detail(update)
+
+    if text == "📤 導出數據":
+        return await export_excel(update)
 
 # ===== RUN =====
 app = ApplicationBuilder().token(TOKEN).build()
