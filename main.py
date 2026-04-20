@@ -66,6 +66,14 @@ def group_menu():
         ["🔙 返回主選單"]
     ], resize_keyboard=True)
 
+# ===== ✅ 新增：填報選單 =====
+def report_menu():
+    return ReplyKeyboardMarkup([
+        ["今日打粉","今日回復"],
+        ["今日新增","今日回訪"],
+        ["今日熱聊","🔙 返回主選單"]
+    ], resize_keyboard=True)
+
 # ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -163,7 +171,7 @@ async def monthly(update):
 
     await update.message.reply_text(msg)
 
-# ===== 分組詳細（修正BUG：加context）=====
+# ===== 分組詳細（修正）=====
 async def group_detail(update, context):
     c.execute("""
     SELECT u.group_name, u.name,
@@ -175,27 +183,61 @@ async def group_detail(update, context):
     """)
 
     rows = c.fetchall()
-
-    if not rows:
-        return await update.message.reply_text("❌ 沒有數據")
-
-    groups = {}
-
-    for r in rows:
-        g = r[0] or "未分組"
-        groups.setdefault(g, []).append(r)
-
     msg = "📊 分組詳細\n\n"
 
-    for g, members in groups.items():
-        msg += f"【{g}】\n"
-        for m in members:
-            msg += f"{m[1]} 打粉:{m[2] or 0} 回復:{m[3] or 0} 新增:{m[4] or 0} 回訪:{m[5] or 0} 熱聊:{m[6] or 0}\n"
-        msg += "\n"
+    for r in rows:
+        msg += f"【{r[0] or '未分組'}】{r[1]} 打粉:{r[2] or 0} 回復:{r[3] or 0} 新增:{r[4] or 0} 回訪:{r[5] or 0} 熱聊:{r[6] or 0}\n"
 
     await update.message.reply_text(msg)
 
-# ===== 原本 DOCX 導出（完全保留）=====
+# ===== ✅ 新增：填報邏輯 =====
+async def handle_report(update, context):
+    text = update.message.text
+    user_id = update.effective_user.id
+
+    mapping = {
+        "今日打粉":"打粉",
+        "今日回復":"回復",
+        "今日新增":"新增",
+        "今日回訪":"回訪",
+        "今日熱聊":"熱聊"
+    }
+
+    if text in mapping:
+        context.user_data["field"] = mapping[text]
+        await update.message.reply_text(f"請輸入{text}數量")
+        return True
+
+    if "field" in context.user_data:
+        try:
+            value = int(text)
+        except:
+            await update.message.reply_text("請輸入數字")
+            return True
+
+        field = context.user_data["field"]
+
+        c.execute("SELECT * FROM stats WHERE user_id=? AND date=?",
+                  (user_id, today()))
+        if not c.fetchone():
+            c.execute("INSERT INTO stats (user_id,date) VALUES (?,?)",
+                      (user_id, today()))
+
+        c.execute(f"UPDATE stats SET {field}=? WHERE user_id=? AND date=?",
+                  (value, user_id, today()))
+        conn.commit()
+
+        context.user_data.pop("field")
+
+        await update.message.reply_text(
+            f"✅ 已記錄{field}: {value}",
+            reply_markup=main_menu()
+        )
+        return True
+
+    return False
+
+# ===== 原 DOCX 導出（保留）=====
 async def export_doc(update):
     if update.effective_user.id != ADMIN_ID:
         return await update.message.reply_text("❌ 只有群主可以導出")
@@ -212,79 +254,92 @@ async def export_doc(update):
     GROUP BY u.user_id
     """)
 
-    rows = c.fetchall()
-    groups = {}
-
-    for r in rows:
-        g = r[0] or "未分組"
-        groups.setdefault(g, []).append(r)
-
-    for g, members in groups.items():
-        doc.add_heading(g, level=1)
-        for m in members:
-            doc.add_paragraph(
-                f"{m[1]} | 打粉:{m[2] or 0} 回復:{m[3] or 0} 新增:{m[4] or 0} 回訪:{m[5] or 0} 熱聊:{m[6] or 0}"
-            )
+    for r in c.fetchall():
+        doc.add_paragraph(f"{r[0] or '未分組'} {r[1]} 打粉:{r[2]}")
 
     file = "報表.docx"
     doc.save(file)
 
     await update.message.reply_document(open(file, "rb"))
 
-# ===== 🚀 新增 Excel 導出（你要的格式）=====
-async def export_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ===== ✅ 新增 XLSX 導出 =====
+async def export_xlsx(update):
     if update.effective_user.id != ADMIN_ID:
         return await update.message.reply_text("❌ 只有管理員可以導出")
 
-    c.execute("""
-    SELECT u.group_name, u.name, s.date,
-    s.打粉,s.回復,s.新增,s.回訪,s.熱聊
-    FROM users u
-    LEFT JOIN stats s ON u.user_id=s.user_id
-    """)
-    rows = c.fetchall()
+    rows = []
 
-    if not rows:
-        return await update.message.reply_text("❌ 沒資料")
+    c.execute("SELECT user_id,name,group_name FROM users")
+    for uid,name,group_name in c.fetchall():
+
+        c.execute("SELECT 打粉,回復,新增,回訪,熱聊 FROM stats WHERE user_id=? AND date=?",
+                  (uid,today()))
+        t = c.fetchone() or (0,0,0,0,0)
+
+        c.execute("""SELECT SUM(打粉),SUM(回復),SUM(新增),SUM(回訪),SUM(熱聊)
+                     FROM stats WHERE user_id=? AND strftime('%Y-%m',date)=strftime('%Y-%m','now')""",(uid,))
+        m = c.fetchone() or (0,0,0,0,0)
+
+        rows.append([
+            group_name or "未分組",name,
+            t[0],m[0],t[1],m[1],t[2],m[2],t[3],m[3],t[4],m[4]
+        ])
 
     df = pd.DataFrame(rows, columns=[
-        "分組","姓名","日期","打粉","回復","新增","回訪","熱聊"
+        "分組","姓名",
+        "今日打粉","本月打粉",
+        "今日回復","本月回復",
+        "今日新增","本月新增",
+        "今日回訪","本月回訪",
+        "今日熱聊","本月熱聊"
     ])
 
-    df["分組"] = df["分組"].fillna("未分組")
+    file = "統計報表.xlsx"
+    df.to_excel(file,index=False)
 
-    df_today = df[df["日期"] == today()]
-    today_sum = df_today.groupby(["分組","姓名"]).sum(numeric_only=True).reset_index()
-
-    df_month = df[df["日期"].str.startswith(month(), na=False)]
-    month_sum = df_month.groupby(["分組","姓名"]).sum(numeric_only=True).reset_index()
-
-    final = pd.merge(today_sum, month_sum, on=["分組","姓名"], how="outer").fillna(0)
-
-    final = final.rename(columns={
-        "打粉_x":"今日打粉","回復_x":"今日回復","新增_x":"今日新增","回訪_x":"今日回訪","熱聊_x":"今日熱聊",
-        "打粉_y":"本月打粉","回復_y":"本月回復","新增_y":"本月新增","回訪_y":"本月回訪","熱聊_y":"本月熱聊",
-    })
-
-    file_name = "統計報表.xlsx"
-
-    with pd.ExcelWriter(file_name) as writer:
-        final.to_excel(writer, sheet_name="統計總表", index=False)
-
-    await update.message.reply_document(open(file_name, "rb"))
+    await update.message.reply_document(open(file,"rb"))
 
 # ===== 主處理 =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-    # ===== 分組 =====
+    # 填報入口
+    if text == "📝 填報數據":
+        return await update.message.reply_text("選擇項目", reply_markup=report_menu())
+
+    handled = await handle_report(update, context)
+    if handled:
+        return
+
+    # 分組管理（原本保留 + 修正）
     if text == "👥 分組管理":
+        context.user_data["mode"] = None
         return await group_manage_menu(update)
 
-    if text == "🔙 返回主選單":
-        return await update.message.reply_text("返回主選單", reply_markup=main_menu())
+    if text == "➕ 建立分組":
+        context.user_data["mode"] = "create_group"
+        return await update.message.reply_text("請輸入分組名稱")
 
-    # ===== 原功能 =====
+    if text == "👤 加入分組":
+        context.user_data["mode"] = "join_group"
+        return await update.message.reply_text("請輸入分組名稱")
+
+    if text == "❌ 移出分組":
+        c.execute("UPDATE users SET group_name=NULL WHERE user_id=?",(update.effective_user.id,))
+        conn.commit()
+        return await update.message.reply_text("已移出分組")
+
+    if context.user_data.get("mode") == "create_group":
+        context.user_data["mode"] = None
+        return await update.message.reply_text(f"已建立：{text}")
+
+    if context.user_data.get("mode") == "join_group":
+        c.execute("UPDATE users SET group_name=? WHERE user_id=?",(text,update.effective_user.id))
+        conn.commit()
+        context.user_data["mode"] = None
+        return await update.message.reply_text(f"已加入：{text}")
+
+    # 原功能
     if text == "📊 查看數據":
         return await view_data(update)
 
@@ -301,7 +356,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await group_detail(update, context)
 
     if text == "📤 導出數據":
-        return await export_excel(update, context)
+        return await export_xlsx(update)
 
 # ===== RUN =====
 app = ApplicationBuilder().token(TOKEN).build()
@@ -309,5 +364,4 @@ app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
-if __name__ == "__main__":
-    app.run_polling()
+app.run_polling()
