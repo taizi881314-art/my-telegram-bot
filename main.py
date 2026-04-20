@@ -51,7 +51,6 @@ def main_menu():
         ["📊 分組詳細","📤 導出數據"],
     ], resize_keyboard=True)
 
-# ✅ 修正1：UI排版（返回鍵一定顯示）
 def group_menu():
     return ReplyKeyboardMarkup([
         ["➕ 建立分組", "👤 加入分組"],
@@ -59,7 +58,6 @@ def group_menu():
         ["🔙 返回主選單"]
     ], resize_keyboard=True)
 
-# ===== 查看分組成員 =====
 async def view_group_members(update):
     c.execute("SELECT group_name, name FROM users")
 
@@ -77,7 +75,6 @@ async def view_group_members(update):
 
     await update.message.reply_text(msg, reply_markup=group_menu())
 
-# ===== 填報選單 =====
 def report_menu():
     return ReplyKeyboardMarkup([
         ["今日打粉","今日回復"],
@@ -85,7 +82,6 @@ def report_menu():
         ["今日熱聊","🔙 返回主選單"]
     ], resize_keyboard=True)
 
-# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
@@ -98,14 +94,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu()
     )
 
-# ===== 分組入口 =====
 async def group_manage_menu(update):
     await update.message.reply_text(
         "👥 分組管理\n請選擇功能",
         reply_markup=group_menu()
     )
 
-# ===== 查看數據 =====
 async def view_data(update):
     c.execute("""
     SELECT u.group_name, u.name,
@@ -116,14 +110,12 @@ async def view_data(update):
     """,(today(),))
 
     msg = "📊 今日數據\n\n"
-
     for r in c.fetchall():
         msg += f"【{r[0] or '未分組'}】{r[1]}\n"
         msg += f"打粉：{r[2] or 0} 回復：{r[3] or 0} 新增：{r[4] or 0} 回訪：{r[5] or 0} 熱聊：{r[6] or 0}\n\n"
 
     await update.message.reply_text(msg)
 
-# ===== 排行榜 =====
 async def ranking(update):
     c.execute("""
     SELECT u.name, SUM(s.打粉)
@@ -140,13 +132,11 @@ async def ranking(update):
 
     await update.message.reply_text(msg)
 
-# ===== 分組數據 =====
 async def group_rank(update):
     c.execute("SELECT DISTINCT IFNULL(group_name,'未分組') FROM users")
     groups = c.fetchall()
 
     msg = "📈 分組數據\n\n"
-
     for g in groups:
         msg += f"【{g[0]}】\n"
 
@@ -170,25 +160,29 @@ async def group_rank(update):
 
     await update.message.reply_text(msg, reply_markup=main_menu())
 
-# ===== 每月報表 =====
+# ✅ 已修好的每月報表（保留）
 async def monthly(update):
     c.execute("""
     SELECT u.name,
     SUM(s.打粉),SUM(s.回復),SUM(s.新增),SUM(s.回訪),SUM(s.熱聊)
     FROM users u
-    JOIN stats s ON u.user_id=s.user_id
-    WHERE strftime('%Y-%m', s.date)=strftime('%Y-%m','now')
+    LEFT JOIN stats s ON u.user_id=s.user_id
+    WHERE strftime('%Y-%m', IFNULL(s.date,'')) = strftime('%Y-%m','now')
     GROUP BY u.user_id
     """)
 
+    rows = c.fetchall()
+
     msg = "📅 本月報表\n\n"
 
-    for r in c.fetchall():
-        msg += f"{r[0]} 打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n"
+    if not rows:
+        msg += "目前沒有數據"
+    else:
+        for r in rows:
+            msg += f"{r[0]} 打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n"
 
     await update.message.reply_text(msg, reply_markup=main_menu())
 
-# ===== 分組詳細（修正2：NULL分組顯示）=====
 async def group_detail(update, context):
     c.execute("""
     SELECT IFNULL(u.group_name,'未分組'), u.name,
@@ -207,7 +201,6 @@ async def group_detail(update, context):
 
     await update.message.reply_text(msg, reply_markup=main_menu())
 
-# ===== 填報 =====
 async def handle_report(update, context):
     text = update.message.text
     user_id = update.effective_user.id
@@ -226,7 +219,11 @@ async def handle_report(update, context):
         return True
 
     if "field" in context.user_data:
-        value = int(text)
+        try:
+            value = int(text)
+        except:
+            await update.message.reply_text("請輸入數字")
+            return True
 
         field = context.user_data["field"]
 
@@ -250,29 +247,40 @@ async def handle_report(update, context):
 
     return False
 
-# ===== 主處理 =====
+# ===============================
+# ✅🔥 穩定版 handle（唯一修改）
+# ===============================
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
+    # 1️⃣ 全局返回
     if text in ["🔙 返回主選單", "返回主選單"]:
         context.user_data.clear()
         return await update.message.reply_text("返回主選單", reply_markup=main_menu())
 
-    if text == "📝 填報數據":
-        return await update.message.reply_text("選擇項目", reply_markup=report_menu())
-
-    # ✅🔥 修正：先判斷每月報表（避免被 handle_report 吃掉）
+    # 2️⃣ 所有按鈕優先（完全避免衝突）
     if text == "📅 每月報表":
         return await monthly(update)
 
-    # 🔽 原本這段往下移
-    handled = await handle_report(update, context)
-    if handled:
-        return
+    if text == "📊 查看數據":
+        return await view_data(update)
+
+    if text == "🏆 排行榜":
+        return await ranking(update)
+
+    if text == "📈 分組數據":
+        return await group_rank(update)
+
+    if text == "📊 分組詳細":
+        return await group_detail(update, context)
 
     if text == "👥 分組管理":
         return await group_manage_menu(update)
 
+    if text == "📝 填報數據":
+        return await update.message.reply_text("選擇項目", reply_markup=report_menu())
+
+    # 3️⃣ 分組功能
     if "查看分組成員" in text:
         return await view_group_members(update)
 
@@ -299,17 +307,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return await update.message.reply_text(f"已加入：{text}", reply_markup=group_menu())
 
-    if text == "📊 查看數據":
-        return await view_data(update)
-
-    if text == "🏆 排行榜":
-        return await ranking(update)
-
-    if text == "📈 分組數據":
-        return await group_rank(update)
-
-    if text == "📊 分組詳細":
-        return await group_detail(update, context)
+    # 4️⃣ 最後才處理輸入（關鍵）
+    handled = await handle_report(update, context)
+    if handled:
+        return
 
 # ===== RUN =====
 app = ApplicationBuilder().token(TOKEN).build()
