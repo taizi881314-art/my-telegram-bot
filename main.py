@@ -42,9 +42,7 @@ conn.commit()
 def today():
     return datetime.now().strftime("%Y-%m-%d")
 
-# ===============================
-# ✅ 新增：自動清除30天前數據
-# ===============================
+# ===== 30天清理 =====
 def clean_old_data():
     limit_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
     c.execute("DELETE FROM stats WHERE date < ?", (limit_date,))
@@ -66,9 +64,7 @@ def group_menu():
         ["🔙 返回主選單"]
     ], resize_keyboard=True)
 
-# ===============================
-# ✅🔥 修正：分組顯示正確歸類
-# ===============================
+# ===== 分組顯示 =====
 async def view_group_members(update):
     c.execute("""
         SELECT 
@@ -76,10 +72,10 @@ async def view_group_members(update):
                 WHEN group_name IS NULL OR group_name = '' 
                 THEN '未分組' 
                 ELSE group_name 
-            END AS g,
+            END,
             name
         FROM users
-        ORDER BY g
+        ORDER BY 1
     """)
 
     groups = {}
@@ -127,7 +123,7 @@ async def group_manage_menu(update):
     )
 
 async def view_data(update):
-    clean_old_data()  # ✅ 每次查詢順便清理
+    clean_old_data()
 
     c.execute("""
     SELECT u.group_name, u.name,
@@ -145,7 +141,7 @@ async def view_data(update):
     await update.message.reply_text(msg)
 
 async def ranking(update):
-    clean_old_data()  # ✅ 清理
+    clean_old_data()
 
     c.execute("""
     SELECT u.name, SUM(s.打粉)
@@ -163,7 +159,7 @@ async def ranking(update):
     await update.message.reply_text(msg)
 
 async def group_rank(update):
-    clean_old_data()  # ✅ 清理
+    clean_old_data()
 
     c.execute("SELECT DISTINCT IFNULL(group_name,'未分組') FROM users")
     groups = c.fetchall()
@@ -192,9 +188,8 @@ async def group_rank(update):
 
     await update.message.reply_text(msg, reply_markup=main_menu())
 
-# ===== 每月報表 =====
 async def monthly(update):
-    clean_old_data()  # ✅ 清理
+    clean_old_data()
 
     c.execute("""
     SELECT u.name,
@@ -235,6 +230,9 @@ async def group_detail(update, context):
 
     await update.message.reply_text(msg, reply_markup=main_menu())
 
+# ===============================
+# ✅ 唯一修改在這裡
+# ===============================
 async def handle_report(update, context):
     text = update.message.text
     user_id = update.effective_user.id
@@ -273,15 +271,16 @@ async def handle_report(update, context):
 
         context.user_data.pop("field")
 
+        # ✅ 不再回主選單，留在填報頁
         await update.message.reply_text(
             f"✅ 已記錄{field}: {value}",
-            reply_markup=main_menu()
+            reply_markup=report_menu()
         )
         return True
 
     return False
 
-# ===== handle（原樣保留）=====
+# ===== handle =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
