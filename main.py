@@ -306,36 +306,38 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     handled = await handle_report(update, context)
     if handled:
         return
+# 分組管理
+if text == "👥 分組管理":
+    context.user_data["mode"] = None
+    return await group_manage_menu(update)
 
-    if text == "👥 分組管理":
-        context.user_data["mode"] = None
-        return await group_manage_menu(update)
+# ✅ 所有按鈕優先
+if text == "👥 查看分組成員":
+    return await view_group_members(update)
 
-    if "查看分組成員" in text:
-        return await view_group_members(update)
+if text == "➕ 建立分組":
+    context.user_data["mode"] = "create_group"
+    return await update.message.reply_text("請輸入分組名稱")
 
-    if text == "➕ 建立分組":
-        context.user_data["mode"] = "create_group"
-        return await update.message.reply_text("請輸入分組名稱")
+if text == "👤 加入分組":
+    context.user_data["mode"] = "join_group"
+    return await update.message.reply_text("請輸入分組名稱")
 
-    if text == "👤 加入分組":
-        context.user_data["mode"] = "join_group"
-        return await update.message.reply_text("請輸入分組名稱")
+if text == "❌ 移出分組":
+    c.execute("UPDATE users SET group_name=NULL WHERE user_id=?",(update.effective_user.id,))
+    conn.commit()
+    return await update.message.reply_text("已移出分組")
 
-    if text == "❌ 移出分組":
-        c.execute("UPDATE users SET group_name=NULL WHERE user_id=?",(update.effective_user.id,))
-        conn.commit()
-        return await update.message.reply_text("已移出分組")
+# ✅ mode 放最後
+if context.user_data.get("mode") == "create_group":
+    context.user_data.clear()
+    return await update.message.reply_text(f"已建立：{text}")
 
-    if context.user_data.get("mode") == "create_group":
-        context.user_data.clear()
-        return await update.message.reply_text(f"已建立：{text}")
-
-    if context.user_data.get("mode") == "join_group":
-        c.execute("UPDATE users SET group_name=? WHERE user_id=?",(text,update.effective_user.id))
-        conn.commit()
-        context.user_data.clear()
-        return await update.message.reply_text(f"已加入：{text}")
+if context.user_data.get("mode") == "join_group":
+    c.execute("UPDATE users SET group_name=? WHERE user_id=?",(text,update.effective_user.id))
+    conn.commit()
+    context.user_data.clear()
+    return await update.message.reply_text(f"已加入：{text}")
 
     if text == "📊 查看數據":
         return await view_data(update)
