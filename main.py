@@ -376,7 +376,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await ranking(update)
 
     if text == "📊 分組數據":
-    return await group_rank(update)
+        return await group_rank(update)
 
 if text == "📊 分組詳細":
     return await group_detail_stats(update)
