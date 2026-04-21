@@ -70,13 +70,12 @@ def clean_old_data():
 # ===== 主選單 =====
 def main_menu():
     return ReplyKeyboardMarkup([
-        ["📊 查看數據", "📝 填報數據"],
-        ["👥 分組管理", "📈 分組數據"],
-        ["🏆 排行榜", "📅 每月報表"],
-        ["📊 分組詳細","📤 導出數據"],
-        ["📊 分組總數"]
+        ["📊 查看数据", "📝 填报数据"],
+        ["👥 分组管理", "📈 分组数据"],  # ✅ 改这里
+        ["🏆 排行榜", "📅 每月报表"],
+        ["📊 分组详细","📤 导出数据"],
+        ["📊 分组总数"]
     ], resize_keyboard=True)
-
 def group_menu():
     return ReplyKeyboardMarkup([
         ["➕ 建立分組", "👤 加入分組"],
@@ -421,9 +420,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "🏆 排行榜":
         return await ranking(update)
 
-    if text == "📊 分組數據":
+    if text in ["📈 分组数据", "📊 分組數據"]:
         return await group_rank(update)
-
+        
     if text == "📊 分組詳細":
         return await group_detail_stats(update, context)
 
