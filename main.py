@@ -79,7 +79,7 @@ def main_menu():
 def group_menu():
     return ReplyKeyboardMarkup([
         ["➕ 建立分組", "👤 加入分組"],
-        ["👥 查看分組成員"，"👤 我的分組"],
+        ["👥 查看分組成員","👤 我的分組"],
         ["🔙 返回主選單"]
     ], resize_keyboard=True)
 
