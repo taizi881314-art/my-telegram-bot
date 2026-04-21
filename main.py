@@ -52,7 +52,8 @@ CREATE TABLE IF NOT EXISTS stats (
     回復 INTEGER DEFAULT 0,
     新增 INTEGER DEFAULT 0,
     回訪 INTEGER DEFAULT 0,
-    熱聊 INTEGER DEFAULT 0
+    熱聊 INTEGER DEFAULT 0,
+    UNIQUE(user_id, date)
 )
 """)
 
@@ -338,17 +339,20 @@ async def handle_report(update, context):
         "今日熱聊":"熱聊"
     }
 
-    # ✅ 点击按钮 → 进入填报状态
+    # ✅ 點擊按鈕 → 進入填報
     if text in mapping:
         context.user_data["field"] = mapping[text]
-        await update.message.reply_text(f"請輸入{text}數量")
+        await update.message.reply_text(
+            f"📌 請輸入【{text}】數量\n（輸入數字）",
+            reply_markup=report_menu()
+        )
         return True
 
-    # ❗关键：如果没进入填报状态，不要拦截
+    # ❗沒有進入填報狀態 → 不攔截
     if "field" not in context.user_data:
         return False
 
-    # ✅ 正在填报 → 处理输入
+    # ✅ 處理輸入
     try:
         value = int(text)
     except:
@@ -357,27 +361,31 @@ async def handle_report(update, context):
 
     field = context.user_data["field"]
 
-    # 取分组
+    # 取得分組
     c.execute("SELECT group_name FROM users WHERE user_id=?", (user_id,))
     result = c.fetchone()
     group = result[0] if result else None
 
-        # 插入或更新
-    c.execute("SELECT * FROM stats WHERE user_id=? AND date=?",
-              (user_id, today()))
-    if not c.fetchone():
-        c.execute("INSERT INTO stats (user_id,date,group_name) VALUES (?,?,?)",
-                  (user_id, today(), group))
+    # ✅ 初始化（只做一次）
+    c.execute("""
+    INSERT OR IGNORE INTO stats 
+    (user_id, date, group_name, 打粉, 回復, 新增, 回訪, 熱聊)
+    VALUES (?,?,?,?,?,?,?,?)
+    """, (user_id, today(), group, 0, 0, 0, 0, 0))
 
-    # ✅ 白名单
-    allowed_fields = ["打粉", "回復", "新增", "回訪", "熱聊"]
+    # ✅ 同步 group_name（🔥關鍵）
+    c.execute("""
+    UPDATE stats 
+    SET group_name=? 
+    WHERE user_id=? AND date=?
+    """, (group, user_id, today()))
 
-    if field not in allowed_fields:
-        return
-
-    # ✅ 更新
-    c.execute(f"UPDATE stats SET `{field}`=? WHERE user_id=? AND date=?",
-              (value, user_id, today()))
+    # ✅ 更新數據
+    c.execute(f"""
+    UPDATE stats 
+    SET [{field}]=? 
+    WHERE user_id=? AND date=?
+    """, (value, user_id, today()))
 
     conn.commit()
 
