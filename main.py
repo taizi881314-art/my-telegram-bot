@@ -520,7 +520,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await update.message.reply_text("❌ 只有群主可以導出數據")
         return await export_data(update, context)
 
-    if text == "📝 填報數據":
+    if text in ["📝 填报数据", "📝 填報數據"]:
         return await update.message.reply_text("選擇項目", reply_markup=report_menu())
 
     if text in ["👥 分组管理", "👥 分組管理"]:
