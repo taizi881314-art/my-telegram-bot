@@ -456,7 +456,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await group_detail_stats(update)
 
     # ✅ 必须在这里（关键）
-   if text == "📤 導出數據":
+if text == "📤 導出數據":
     if update.effective_user.id != ADMIN_ID:
         return await update.message.reply_text("❌ 只有群主可以導出數據")
     return await export_data(update, context)
