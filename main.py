@@ -86,9 +86,26 @@ def group_menu():
 
 # ===== 分組成員 =====
 async def view_group_members(update):
-    ...
-    await update.message.reply_text(msg, reply_markup=group_menu())
+    c.execute("""
+    SELECT IFNULL(group_name,'未分組'), name
+    FROM users
+    ORDER BY group_name
+    """)
 
+    rows = c.fetchall()
+
+    msg = "👥 分組成員\n\n"
+
+    current_group = None
+
+    for g, name in rows:
+        if g != current_group:
+            msg += f"\n【{g}】\n"
+            current_group = g
+        msg += f"- {name}\n"
+
+    await update.message.reply_text(msg, reply_markup=group_menu())
+    
 # ===== 查看自己分組 =====
 async def my_group(update):
     user_id = update.effective_user.id
@@ -105,9 +122,32 @@ async def my_group(update):
 
 # ===== 分組總數 =====
 async def group_total_stats(update):
-    ...
-    await update.message.reply_text(msg, reply_markup=main_menu())
+    clean_old_data()
 
+    c.execute("""
+    SELECT 
+        IFNULL(u.group_name,'未分組'),
+        SUM(s.打粉),SUM(s.回復),SUM(s.新增),
+        SUM(s.回訪),SUM(s.熱聊)
+    FROM users u
+    LEFT JOIN stats s 
+        ON u.user_id = s.user_id 
+        AND s.date = ?
+    GROUP BY IFNULL(u.group_name,'未分組')
+    """,(today(),))
+
+    rows = c.fetchall()
+
+    msg = "📊 分組總數（今日）\n\n"
+
+    if not rows:
+        msg += "沒有數據"
+    else:
+        for r in rows:
+            msg += f"【{r[0]}】\n"
+            msg += f"打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n\n"
+
+    await update.message.reply_text(msg, reply_markup=main_menu())
 
 # ===== 導出 Excel（完整版本）=====
 async def export_data(update, context):
@@ -440,7 +480,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await update.message.reply_text("❌ 只有群主可以導出數據")
         return await export_data(update, context)
 
-    if text == "👥 分組管理":
+    if text in ["👥 分组管理", "👥 分組管理"]:
         return await group_manage_menu(update)
 
     if text == "📝 填報數據":
