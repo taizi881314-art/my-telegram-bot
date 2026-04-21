@@ -308,14 +308,19 @@ async def group_rank(update):
     clean_old_data()
 
     c.execute("""
-    SELECT IFNULL(group_name,'未分組'),
-    SUM(打粉),SUM(回復),SUM(新增),SUM(回訪),SUM(熱聊)
-    FROM stats
-    WHERE date=?
-    GROUP BY IFNULL(group_name,'未分組')
+    SELECT 
+        IFNULL(u.group_name,'未分組'),
+        SUM(s.打粉),SUM(s.回復),SUM(s.新增),
+        SUM(s.回訪),SUM(s.熱聊)
+    FROM users u
+    LEFT JOIN stats s 
+        ON u.user_id = s.user_id 
+        AND s.date = ?
+    GROUP BY IFNULL(u.group_name,'未分組')
     """,(today(),))
 
     rows = c.fetchall()
+    print("分组数据 rows:", rows)  # 🔥 关键调试
 
     msg = "📈 分組數據（今日總數）\n\n"
 
@@ -327,7 +332,7 @@ async def group_rank(update):
             msg += f"打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n\n"
 
     await update.message.reply_text(msg, reply_markup=main_menu())
-
+    
 # ===== 每月 =====
 async def monthly(update):
     clean_old_data()
@@ -420,6 +425,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "🏆 排行榜":
         return await ranking(update)
 
+    if "分组数据" in text:
+        return await group_rank(update)
+    
     if text in ["📈 分组数据", "📊 分組數據"]:
         return await group_rank(update)
         
