@@ -30,7 +30,7 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ===== DB =====
-conn = sqlite3.connect("/mnt/data/data.db", check_same_thread=False)
+conn = sqlite3.connect("data.db", check_same_thread=False)
 c = conn.cursor()
 
 # users
