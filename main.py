@@ -347,7 +347,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await view_group_members(update)
 
     if text == "👤 我的分組":
-    return await my_group(update)
+        return await my_group(update)
     
     # ===============================
     # ✅【修改】建立分組權限（只改這裡）
