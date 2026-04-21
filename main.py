@@ -110,30 +110,75 @@ async def group_total_stats(update):
     await update.message.reply_text(msg, reply_markup=main_menu())
 
 
-# ===== 導出 Excel（← 就放這裡）=====
-async def export_data(update):
-    clean_old_data()
+# ===== 導出 Excel（完整版本）=====
+async def export_data(update, context):
+    try:
+        print("开始导出")
 
-    c.execute("""
-    SELECT u.name, IFNULL(s.group_name,'未分組'),
-    s.date, s.打粉, s.回復, s.新增, s.回訪, s.熱聊
-    FROM stats s
-    LEFT JOIN users u ON u.user_id = s.user_id
-    """)
+        clean_old_data()
 
-    rows = c.fetchall()
+        # 今日数据
+        c.execute("""
+        SELECT u.user_id, u.name, IFNULL(u.group_name,'未分組'),
+        IFNULL(s.打粉,0), IFNULL(s.回復,0), IFNULL(s.新增,0),
+        IFNULL(s.回訪,0), IFNULL(s.熱聊,0)
+        FROM users u
+        LEFT JOIN stats s
+        ON u.user_id = s.user_id AND s.date=?
+        """,(today(),))
+        today_rows = c.fetchall()
 
-    if not rows:
-        return await update.message.reply_text("❌ 沒有數據可導出")
+        # 本月数据
+        c.execute("""
+        SELECT user_id,
+        SUM(打粉), SUM(回復), SUM(新增),
+        SUM(回訪), SUM(熱聊)
+        FROM stats
+        WHERE strftime('%Y-%m', date)=strftime('%Y-%m','now')
+        GROUP BY user_id
+        """)
+        month_data = {row[0]: row[1:] for row in c.fetchall()}
 
-    df = pd.DataFrame(rows, columns=[
-        "姓名","分組","日期","打粉","回復","新增","回訪","熱聊"
-    ])
+        data = []
 
-    file_name = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    df.to_excel(file_name, index=False)
+        for r in today_rows:
+            user_id = r[0]
+            name = r[1]
+            group = r[2]
 
-    await update.message.reply_document(document=open(file_name, "rb"))
+            today_vals = r[3:8]
+            month_vals = month_data.get(user_id, (0,0,0,0,0))
+
+            data.append([
+                group,
+                name,
+                today_vals[0], month_vals[0],
+                today_vals[1], month_vals[1],
+                today_vals[2], month_vals[2],
+                today_vals[3], month_vals[3],
+                today_vals[4], month_vals[4],
+            ])
+
+        if not data:
+            return await update.message.reply_text("❌ 沒有數據可導出")
+
+        df = pd.DataFrame(data, columns=[
+            "分組","姓名",
+            "今日打粉","本月打粉",
+            "今日回復","本月回復",
+            "今日新增","本月新增",
+            "今日回訪","本月回訪",
+            "今日熱聊","本月熱聊"
+        ])
+
+        file_name = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        df.to_excel(file_name, index=False, engine="openpyxl")
+
+        await update.message.reply_document(document=open(file_name, "rb"))
+
+    except Exception as e:
+        print("导出错误：", e)
+        await update.message.reply_text(f"❌ 导出失败：{e}")
 
 # 👇👇👇 就貼在這裡 👇👇👇
 
@@ -411,10 +456,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await group_detail_stats(update)
 
     # ✅ 必须在这里（关键）
-    if text == "📤 導出數據":
-        if update.effective_user.id != ADMIN_ID:
-            return await update.message.reply_text("❌ 只有群主可以導出數據")
-        return await export_data(update)
+   if text == "📤 導出數據":
+    if update.effective_user.id != ADMIN_ID:
+        return await update.message.reply_text("❌ 只有群主可以導出數據")
+    return await export_data(update, context)
 
     if text == "👥 分組管理":
         return await group_manage_menu(update)
