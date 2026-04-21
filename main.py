@@ -81,34 +81,26 @@ def group_menu():
     return ReplyKeyboardMarkup([
         ["➕ 建立分組", "👤 加入分組"],
         ["❌ 移出分組", "👥 查看分組成員"],
+        ["👤 我的分組"],   # ← 新增這行
         ["🔙 返回主選單"]
     ], resize_keyboard=True)
 
 # ===== 分組成員 =====
 async def view_group_members(update):
-    c.execute("""
-        SELECT 
-            CASE 
-                WHEN group_name IS NULL OR group_name = '' 
-                THEN '未分組' 
-                ELSE group_name 
-            END,
-            name
-        FROM users
-        ORDER BY group_name
-    """)
+    ...
+    await update.message.reply_text(msg, reply_markup=group_menu())
 
-    groups = {}
-    for g, name in c.fetchall():
-        groups.setdefault(g, []).append(name)
+# ===== 查看自己分組 =====
+async def my_group(update):
+    user_id = update.effective_user.id
 
-    msg = "👥 分組成員列表\n\n"
+    c.execute("SELECT group_name FROM users WHERE user_id=?", (user_id,))
+    result = c.fetchone()
 
-    for g, members in groups.items():
-        msg += f"【{g}】\n"
-        for m in members:
-            msg += f" - {m}\n"
-        msg += "\n"
+    if not result or not result[0]:
+        msg = "❌ 你目前尚未加入任何分組"
+    else:
+        msg = f"👤 你目前所在分組：{result[0]}"
 
     await update.message.reply_text(msg, reply_markup=group_menu())
 
@@ -354,6 +346,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "查看分組成員" in text:
         return await view_group_members(update)
 
+    if text == "👤 我的分組":
+    return await my_group(update)
+    
     # ===============================
     # ✅【修改】建立分組權限（只改這裡）
     # ===============================
