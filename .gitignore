@@ -26,3 +26,4 @@ logs/
 
 # Build artifacts
 .terraform.lock.hcl
+data.db
