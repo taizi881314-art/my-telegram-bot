@@ -13,6 +13,22 @@ TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 7784849131
 GROUP_CHAT_ID = -5136356372
 
+# ===============================
+# ✅【新增】管理員判斷（只新增這段）
+# ===============================
+async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if user_id == ADMIN_ID:
+        return True
+
+    try:
+        member = await context.bot.get_chat_member(GROUP_CHAT_ID, user_id)
+        return member.status in ["administrator", "creator"]
+    except:
+        return False
+
+
 # ===== DB =====
 conn = sqlite3.connect("data.db", check_same_thread=False)
 c = conn.cursor()
@@ -96,9 +112,7 @@ async def view_group_members(update):
 
     await update.message.reply_text(msg, reply_markup=group_menu())
 
-# ===============================
-# ✅ 新增：分組總數統計
-# ===============================
+# ===== 分組總數 =====
 async def group_total_stats(update):
     clean_old_data()
 
@@ -150,17 +164,32 @@ async def group_manage_menu(update):
         reply_markup=group_menu()
     )
 
-# ===== 查看數據 =====
-async def view_data(update):
+# ===============================
+# ✅【修改】查看數據（只改這一個 function）
+# ===============================
+async def view_data(update, context):
     clean_old_data()
 
-    c.execute("""
-    SELECT u.group_name, u.name,
-    s.打粉,s.回復,s.新增,s.回訪,s.熱聊
-    FROM users u
-    LEFT JOIN stats s
-    ON u.user_id=s.user_id AND s.date=?
-    """,(today(),))
+    user_id = update.effective_user.id
+    admin = await is_admin(update, context)
+
+    if admin:
+        c.execute("""
+        SELECT u.group_name, u.name,
+        s.打粉,s.回復,s.新增,s.回訪,s.熱聊
+        FROM users u
+        LEFT JOIN stats s
+        ON u.user_id=s.user_id AND s.date=?
+        """,(today(),))
+    else:
+        c.execute("""
+        SELECT u.group_name, u.name,
+        s.打粉,s.回復,s.新增,s.回訪,s.熱聊
+        FROM users u
+        LEFT JOIN stats s
+        ON u.user_id=s.user_id AND s.date=?
+        WHERE u.user_id=?
+        """,(today(), user_id))
 
     msg = "📊 今日數據\n\n"
     for r in c.fetchall():
@@ -308,7 +337,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await monthly(update)
 
     if text == "📊 查看數據":
-        return await view_data(update)
+        return await view_data(update, context)  # ← 只改這行（加 context）
 
     if text == "🏆 排行榜":
         return await ranking(update)
@@ -325,10 +354,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "查看分組成員" in text:
         return await view_group_members(update)
 
-    # 🔒 限制建立分組
+    # ===============================
+    # ✅【修改】建立分組權限（只改這裡）
+    # ===============================
     if text == "➕ 建立分組":
-        if update.effective_user.id != ADMIN_ID:
-            return await update.message.reply_text("❌ 只有群主可以建立分組")
+        if not await is_admin(update, context):
+            return await update.message.reply_text("❌ 只有管理員可以建立分組")
         context.user_data["mode"] = "create_group"
         return await update.message.reply_text("請輸入分組名稱")
 
