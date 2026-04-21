@@ -30,7 +30,7 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ===== DB =====
-conn = sqlite3.connect("data.db", check_same_thread=False)
+conn = sqlite3.connect("/mnt/data/data.db", check_same_thread=False)
 c = conn.cursor()
 
 # users
@@ -328,7 +328,7 @@ async def monthly(update):
 
 # ===== 填報 =====
 async def handle_report(update, context):
-    text = update.message.text
+    text = update.message.text.strip()
     user_id = update.effective_user.id
 
     mapping = {
@@ -339,20 +339,19 @@ async def handle_report(update, context):
         "今日熱聊":"熱聊"
     }
 
-    # ✅ 點擊按鈕 → 進入填報
+    # 👉 点击按钮
     if text in mapping:
         context.user_data["field"] = mapping[text]
         await update.message.reply_text(
-            f"📌 請輸入【{text}】數量\n（輸入數字）",
-            reply_markup=report_menu()
+            f"📌 請輸入【{text}】數量（輸入數字）"
         )
         return True
 
-    # ❗沒有進入填報狀態 → 不攔截
+    # 👉 没在填报状态
     if "field" not in context.user_data:
         return False
 
-    # ✅ 處理輸入
+    # 👉 输入数值
     try:
         value = int(text)
     except:
@@ -361,42 +360,38 @@ async def handle_report(update, context):
 
     field = context.user_data["field"]
 
-    # 取得分組
+    # 👉 获取分组
     c.execute("SELECT group_name FROM users WHERE user_id=?", (user_id,))
     result = c.fetchone()
     group = result[0] if result else None
 
-    # ✅ 初始化（只做一次）
+    # 👉 初始化（关键）
     c.execute("""
     INSERT OR IGNORE INTO stats 
     (user_id, date, group_name, 打粉, 回復, 新增, 回訪, 熱聊)
     VALUES (?,?,?,?,?,?,?,?)
     """, (user_id, today(), group, 0, 0, 0, 0, 0))
 
-    # ✅ 同步 group_name（🔥關鍵）
+    # 👉 更新分组（关键）
     c.execute("""
-    UPDATE stats 
-    SET group_name=? 
+    UPDATE stats SET group_name=?
     WHERE user_id=? AND date=?
     """, (group, user_id, today()))
 
-    # ✅ 更新數據
+    # 👉 更新数据
     c.execute(f"""
-    UPDATE stats 
-    SET [{field}]=? 
+    UPDATE stats SET [{field}] = ?
     WHERE user_id=? AND date=?
     """, (value, user_id, today()))
 
     conn.commit()
 
-    context.user_data.pop("field")
+    context.user_data.clear()
 
-    await update.message.reply_text(
-        f"✅ 已記錄 {field}: {value}",
-        reply_markup=report_menu()
-    )
+    await update.message.reply_text(f"✅ 已記錄 {field}: {value}")
 
     return True
+    
 # ===== handle =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
