@@ -182,60 +182,44 @@ async def export_data(update, context):
 
 # 👇👇👇 就貼在這裡 👇👇👇
 
-# ===== 分組詳細（成員明細）=====
-async def group_detail_stats(update):
+# ===== 分組詳細（自己小組成員總數）=====
+async def group_detail_stats(update, context):
     clean_old_data()
 
+    user_id = update.effective_user.id
+
+    # 查自己分組
+    c.execute("SELECT group_name FROM users WHERE user_id=?", (user_id,))
+    result = c.fetchone()
+
+    if not result or not result[0]:
+        return await update.message.reply_text("❌ 你沒有分組")
+
+    group_name = result[0]
+
+    # 查該組所有成員數據
     c.execute("""
-    SELECT IFNULL(group_name,'未分組'), user_id,
+    SELECT user_id,
     SUM(打粉),SUM(回復),SUM(新增),SUM(回訪),SUM(熱聊)
     FROM stats
-    WHERE date=?
-    GROUP BY IFNULL(group_name,'未分組'), user_id
-    """,(today(),))
+    WHERE IFNULL(group_name,'未分組')=? AND date=?
+    GROUP BY user_id
+    """,(group_name, today()))
 
     rows = c.fetchall()
 
-    msg = "📊 分組詳細（今日）\n\n"
+    msg = f"📊 分組詳細（{group_name}）\n\n"
 
     if not rows:
         msg += "目前沒有數據"
     else:
-        current_group = None
-
         for r in rows:
-            group = r[0]
-            user_id = r[1]
+            uid = r[0]
 
-            c.execute("SELECT name FROM users WHERE user_id=?", (user_id,))
+            c.execute("SELECT name FROM users WHERE user_id=?", (uid,))
             name = c.fetchone()[0]
 
-            if group != current_group:
-                msg += f"\n【{group}】\n"
-                current_group = group
-
-            msg += f"{name}：打粉:{r[2] or 0} 回復:{r[3] or 0} 新增:{r[4] or 0} 回訪:{r[5] or 0} 熱聊:{r[6] or 0}\n"
-
-    await update.message.reply_text(msg, reply_markup=main_menu())
-    clean_old_data()
-
-    c.execute("""
-    SELECT IFNULL(group_name,'未分組'),
-    SUM(打粉),SUM(回復),SUM(新增),SUM(回訪),SUM(熱聊)
-    FROM stats
-    WHERE date=?
-    GROUP BY IFNULL(group_name,'未分組')
-    """,(today(),))
-
-    rows = c.fetchall()
-
-    msg = "📊 分組總數統計（今日）\n\n"
-
-    if not rows:
-        msg += "目前沒有數據"
-    else:
-        for r in rows:
-            msg += f"【{r[0]}】\n"
+            msg += f"{name}\n"
             msg += f"打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n\n"
 
     await update.message.reply_text(msg, reply_markup=main_menu())
@@ -320,40 +304,28 @@ async def ranking(update):
 
     await update.message.reply_text(msg)
 
-# ===== 分組數據 =====
+# ===== 分組數據（所有小組總數）=====
 async def group_rank(update):
     clean_old_data()
 
     c.execute("""
-SELECT DISTINCT IFNULL(group_name,'未分組')
-FROM stats
-WHERE date=?
-""",(today(),))
-    groups = c.fetchall()
+    SELECT IFNULL(group_name,'未分組'),
+    SUM(打粉),SUM(回復),SUM(新增),SUM(回訪),SUM(熱聊)
+    FROM stats
+    WHERE date=?
+    GROUP BY IFNULL(group_name,'未分組')
+    """,(today(),))
 
-    msg = "📈 分組數據\n\n"
+    rows = c.fetchall()
 
-    for g in groups:
-        msg += f"【{g[0]}】\n"
+    msg = "📈 分組數據（今日總數）\n\n"
 
-        c.execute("""
-        SELECT user_id, SUM(打粉)
-        FROM stats
-        WHERE IFNULL(group_name,'未分組')=? AND date=?
-        GROUP BY user_id
-        """,(g[0],today()))
-
-        rows = c.fetchall()
-
-        if not rows:
-            msg += "無數據\n"
-        else:
-            for uid, val in rows:
-                c.execute("SELECT name FROM users WHERE user_id=?", (uid,))
-                name = c.fetchone()[0]
-                msg += f"{name}：{val or 0}\n"
-
-        msg += "\n"
+    if not rows:
+        msg += "目前沒有數據"
+    else:
+        for r in rows:
+            msg += f"【{r[0]}】\n"
+            msg += f"打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n\n"
 
     await update.message.reply_text(msg, reply_markup=main_menu())
 
@@ -453,7 +425,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await group_rank(update)
 
     if text == "📊 分組詳細":
-        return await group_detail_stats(update)
+        return await group_detail_stats(update, context)
 
     # ✅ ✅ ✅ 就放在这里（注意缩进）
     if text == "📤 導出數據":
