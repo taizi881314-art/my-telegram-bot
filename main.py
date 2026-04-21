@@ -226,7 +226,13 @@ async def view_data(update, context):
     user_id = update.effective_user.id
     admin = await is_admin(update, context)
 
+    # 👉 先取得自己的分組
+    c.execute("SELECT group_name FROM users WHERE user_id=?", (user_id,))
+    result = c.fetchone()
+    group_name = result[0] if result else None
+
     if admin:
+        # ✅ 管理員看全部
         c.execute("""
         SELECT u.group_name, u.name,
         s.打粉,s.回復,s.新增,s.回訪,s.熱聊
@@ -235,17 +241,24 @@ async def view_data(update, context):
         ON u.user_id=s.user_id AND s.date=?
         """,(today(),))
     else:
+        # ✅ 成員：看自己 + 同分組
         c.execute("""
         SELECT u.group_name, u.name,
         s.打粉,s.回復,s.新增,s.回訪,s.熱聊
         FROM users u
         LEFT JOIN stats s
         ON u.user_id=s.user_id AND s.date=?
-        WHERE u.user_id=?
-        """,(today(), user_id))
+        WHERE u.user_id=? OR IFNULL(u.group_name,'')=IFNULL(?, '')
+        """,(today(), user_id, group_name))
+
+    rows = c.fetchall()
+
+    if not rows:
+        return await update.message.reply_text("❌ 沒有數據")
 
     msg = "📊 今日數據\n\n"
-    for r in c.fetchall():
+
+    for r in rows:
         msg += f"【{r[0] or '未分組'}】{r[1]}\n"
         msg += f"打粉：{r[2] or 0} 回復：{r[3] or 0} 新增：{r[4] or 0} 回訪：{r[5] or 0} 熱聊：{r[6] or 0}\n\n"
 
