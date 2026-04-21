@@ -110,6 +110,31 @@ async def group_total_stats(update):
     await update.message.reply_text(msg, reply_markup=main_menu())
 
 
+# ===== 導出 Excel（← 就放這裡）=====
+async def export_data(update):
+    clean_old_data()
+
+    c.execute("""
+    SELECT u.name, IFNULL(s.group_name,'未分組'),
+    s.date, s.打粉, s.回復, s.新增, s.回訪, s.熱聊
+    FROM stats s
+    LEFT JOIN users u ON u.user_id = s.user_id
+    """)
+
+    rows = c.fetchall()
+
+    if not rows:
+        return await update.message.reply_text("❌ 沒有數據可導出")
+
+    df = pd.DataFrame(rows, columns=[
+        "姓名","分組","日期","打粉","回復","新增","回訪","熱聊"
+    ])
+
+    file_name = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    df.to_excel(file_name, index=False)
+
+    await update.message.reply_document(document=open(file_name, "rb"))
+
 # 👇👇👇 就貼在這裡 👇👇👇
 
 # ===== 分組詳細（成員明細）=====
@@ -254,7 +279,11 @@ async def ranking(update):
 async def group_rank(update):
     clean_old_data()
 
-    c.execute("SELECT DISTINCT IFNULL(group_name,'未分組') FROM stats")
+    c.execute("""
+SELECT DISTINCT IFNULL(group_name,'未分組')
+FROM stats
+WHERE date=?
+""",(today(),))
     groups = c.fetchall()
 
     msg = "📈 分組數據\n\n"
@@ -370,7 +399,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await monthly(update)
 
     if text == "📊 查看數據":
-        return await view_data(update, context)  # ← 只改這行（加 context）
+        return await view_data(update, context)
 
     if text == "🏆 排行榜":
         return await ranking(update)
@@ -378,17 +407,17 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "📊 分組數據":
         return await group_rank(update)
 
-if text == "📊 分組詳細":
-    return await group_detail_stats(update)
+    if text == "📊 分組詳細":
+        return await group_detail_stats(update)
 
-# ✅ 新增 2：導出數據
-if text == "📤 導出數據":
-    if update.effective_user.id != ADMIN_ID:
-        return await update.message.reply_text("❌ 只有群主可以導出數據")
-    return await update.message.reply_text("📤 導出功能開發中")
+    # ✅ 必须在这里（关键）
+    if text == "📤 導出數據":
+        if update.effective_user.id != ADMIN_ID:
+            return await update.message.reply_text("❌ 只有群主可以導出數據")
+        return await export_data(update)
 
-if text == "👥 分組管理":
-    return await group_manage_menu(update)
+    if text == "👥 分組管理":
+        return await group_manage_menu(update)
 
     if text == "📝 填報數據":
         return await update.message.reply_text("選擇項目", reply_markup=report_menu())
@@ -398,10 +427,7 @@ if text == "👥 分組管理":
 
     if text == "👤 我的分組":
         return await my_group(update)
-    
-    # ===============================
-    # ✅【修改】建立分組權限（只改這裡）
-    # ===============================
+
     if text == "➕ 建立分組":
         if not await is_admin(update, context):
             return await update.message.reply_text("❌ 只有管理員可以建立分組")
