@@ -210,7 +210,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu()
     )
 
-async def group_manage_menu(update):
+async def group_manage_menu(update, context):
     await update.message.reply_text(
         "👥 分組管理\n請選擇功能",
         reply_markup=group_menu()
@@ -338,43 +338,57 @@ async def handle_report(update, context):
         "今日熱聊":"熱聊"
     }
 
+    # ✅ 点击按钮 → 进入填报状态
     if text in mapping:
         context.user_data["field"] = mapping[text]
         await update.message.reply_text(f"請輸入{text}數量")
         return True
 
-    if "field" in context.user_data:
-        try:
-            value = int(text)
-        except:
-            await update.message.reply_text("請輸入數字")
-            return True
+    # ❗关键：如果没进入填报状态，不要拦截
+    if "field" not in context.user_data:
+        return False
 
-        field = context.user_data["field"]
-
-        c.execute("SELECT group_name FROM users WHERE user_id=?", (user_id,))
-        group = c.fetchone()[0]
-
-        c.execute("SELECT * FROM stats WHERE user_id=? AND date=?",
-                  (user_id, today()))
-        if not c.fetchone():
-            c.execute("INSERT INTO stats (user_id,date,group_name) VALUES (?,?,?)",
-                      (user_id, today(), group))
-
-        c.execute(f"UPDATE stats SET {field}=? WHERE user_id=? AND date=?",
-                  (value, user_id, today()))
-        conn.commit()
-
-        context.user_data.pop("field")
-
-        await update.message.reply_text(
-            f"✅ 已記錄{field}: {value}",
-            reply_markup=report_menu()
-        )
+    # ✅ 正在填报 → 处理输入
+    try:
+        value = int(text)
+    except:
+        await update.message.reply_text("❌ 請輸入數字")
         return True
 
-    return False
+    field = context.user_data["field"]
 
+    # 取分组
+    c.execute("SELECT group_name FROM users WHERE user_id=?", (user_id,))
+    result = c.fetchone()
+    group = result[0] if result else None
+
+        # 插入或更新
+    c.execute("SELECT * FROM stats WHERE user_id=? AND date=?",
+              (user_id, today()))
+    if not c.fetchone():
+        c.execute("INSERT INTO stats (user_id,date,group_name) VALUES (?,?,?)",
+                  (user_id, today(), group))
+
+    # ✅ 白名单
+    allowed_fields = ["打粉", "回復", "新增", "回訪", "熱聊"]
+
+    if field not in allowed_fields:
+        return
+
+    # ✅ 更新
+    c.execute(f"UPDATE stats SET `{field}`=? WHERE user_id=? AND date=?",
+              (value, user_id, today()))
+
+    conn.commit()
+
+    context.user_data.pop("field")
+
+    await update.message.reply_text(
+        f"✅ 已記錄 {field}: {value}",
+        reply_markup=report_menu()
+    )
+
+    return True
 # ===== handle =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -502,7 +516,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("選擇項目", reply_markup=report_menu())
 
     if text in ["👥 分组管理", "👥 分組管理"]:
-        return await group_manage_menu(update)
+        return await group_manage_menu(update, context)
 
     if "查看分組成員" in text:
         return await view_group_members(update)
