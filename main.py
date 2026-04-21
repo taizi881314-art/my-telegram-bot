@@ -399,52 +399,40 @@ async def handle_report(update, context):
     return True
 # ===== handle =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
+    text = update.message.text.strip()
 
+    # ===== 返回主选单 =====
     if text in ["🔙 返回主選單", "返回主選單"]:
         context.user_data.clear()
         return await update.message.reply_text("返回主選單", reply_markup=main_menu())
 
-    # ✅🔥 必须放这里
+    # ===== 填報流程（最高優先）=====
     handled = await handle_report(update, context)
     if handled:
         return
 
-# ===== 基础功能 =====
-    if text == "📊 分組總數":
-        return await group_total_stats(update)
+    # ===== 填報入口 =====
+    if text in ["📝 填报数据", "📝 填報數據"]:
+        return await update.message.reply_text("選擇項目", reply_markup=report_menu())
 
-    if text == "📅 每月報表":
-        clean_old_data()
-
-        c.execute("""
-        SELECT u.name,
-        SUM(s.打粉),SUM(s.回復),SUM(s.新增),
-        SUM(s.回訪),SUM(s.熱聊)
-        FROM users u
-        LEFT JOIN stats s ON u.user_id=s.user_id
-        WHERE strftime('%Y-%m', IFNULL(s.date,'')) = strftime('%Y-%m','now')
-        GROUP BY u.user_id
-        """)
-
-        rows = c.fetchall()
-
-        if not rows or all(all(v is None for v in r[1:]) for r in rows):
-            return await update.message.reply_text("❌ 本月沒有任何數據", reply_markup=main_menu())
-
-        msg = "📅 本月報表\n\n"
-        for r in rows:
-            msg += f"{r[0]} 打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n"
-
-        return await update.message.reply_text(msg, reply_markup=main_menu())
-
-    if text == "📊 查看數據":
+    # ===== 查看數據 =====
+    if text in ["📊 查看数据", "📊 查看數據"]:
         return await view_data(update, context)
 
-    if text == "🏆 排行榜":
+    # ===== 排行榜 =====
+    if text in ["🏆 排行榜"]:
         return await ranking(update)
 
-    if "分组数据" in text or text in ["📈 分组数据", "📊 分組數據"]:
+    # ===== 分組總數 =====
+    if text in ["📊 分组总数", "📊 分組總數"]:
+        return await group_total_stats(update)
+
+    # ===== 每月報表 =====
+    if text in ["📅 每月报表", "📅 每月報表"]:
+        return await monthly(update)
+
+    # ===== 分組數據 =====
+    if text in ["📈 分组数据", "📈 分組數據"]:
         clean_old_data()
 
         c.execute("""
@@ -471,6 +459,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total = sum([x or 0 for x in r[1:]])
             if total > 0:
                 has_data = True
+
             msg += f"【{r[0]}】\n"
             msg += f"打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n\n"
 
@@ -479,7 +468,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return await update.message.reply_text(msg, reply_markup=main_menu())
 
-    if text == "📊 分組詳細":
+    # ===== 分組詳細 =====
+    if text in ["📊 分组详细", "📊 分組詳細"]:
         clean_old_data()
 
         user_id = update.effective_user.id
@@ -515,33 +505,35 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return await update.message.reply_text(msg, reply_markup=main_menu())
 
-    if text == "📤 導出數據":
+    # ===== 導出數據 =====
+    if text in ["📤 导出数据", "📤 導出數據"]:
         if update.effective_user.id != ADMIN_ID:
             return await update.message.reply_text("❌ 只有群主可以導出數據")
         return await export_data(update, context)
 
-    if text in ["📝 填报数据", "📝 填報數據"]:
-        return await update.message.reply_text("選擇項目", reply_markup=report_menu())
-
+    # ===== 分組管理 =====
     if text in ["👥 分组管理", "👥 分組管理"]:
         return await group_manage_menu(update, context)
 
-    if "查看分組成員" in text:
+    if text in ["👥 查看分組成員", "查看分組成員"]:
         return await view_group_members(update)
 
-    if text == "👤 我的分組":
+    if text in ["👤 我的分組"]:
         return await my_group(update)
 
-    if text == "➕ 建立分組":
+    # ===== 建立分組 =====
+    if text in ["➕ 建立分組"]:
         if not await is_admin(update, context):
             return await update.message.reply_text("❌ 只有管理員可以建立分組")
         context.user_data["mode"] = "create_group"
         return await update.message.reply_text("請輸入分組名稱")
 
-    if text == "👤 加入分組":
+    # ===== 加入分組 =====
+    if text in ["👤 加入分組"]:
         context.user_data["mode"] = "join_group"
         return await update.message.reply_text("請輸入分組名稱")
 
+    # ===== 建立分組流程 =====
     if context.user_data.get("mode") == "create_group":
         group_name = text
 
@@ -553,6 +545,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return await update.message.reply_text(f"✅ 分組已建立：{group_name}", reply_markup=group_menu())
 
+    # ===== 加入分組流程 =====
     if context.user_data.get("mode") == "join_group":
         c.execute("UPDATE users SET group_name=? WHERE user_id=?", (text, update.effective_user.id))
         conn.commit()
