@@ -106,6 +106,47 @@ async def my_group(update):
 
 # ===== 分組總數 =====
 async def group_total_stats(update):
+    ...
+    await update.message.reply_text(msg, reply_markup=main_menu())
+
+
+# 👇👇👇 就貼在這裡 👇👇👇
+
+# ===== 分組詳細（成員明細）=====
+async def group_detail_stats(update):
+    clean_old_data()
+
+    c.execute("""
+    SELECT IFNULL(group_name,'未分組'), user_id,
+    SUM(打粉),SUM(回復),SUM(新增),SUM(回訪),SUM(熱聊)
+    FROM stats
+    WHERE date=?
+    GROUP BY IFNULL(group_name,'未分組'), user_id
+    """,(today(),))
+
+    rows = c.fetchall()
+
+    msg = "📊 分組詳細（今日）\n\n"
+
+    if not rows:
+        msg += "目前沒有數據"
+    else:
+        current_group = None
+
+        for r in rows:
+            group = r[0]
+            user_id = r[1]
+
+            c.execute("SELECT name FROM users WHERE user_id=?", (user_id,))
+            name = c.fetchone()[0]
+
+            if group != current_group:
+                msg += f"\n【{group}】\n"
+                current_group = group
+
+            msg += f"{name}：打粉:{r[2] or 0} 回復:{r[3] or 0} 新增:{r[4] or 0} 回訪:{r[5] or 0} 熱聊:{r[6] or 0}\n"
+
+    await update.message.reply_text(msg, reply_markup=main_menu())
     clean_old_data()
 
     c.execute("""
@@ -334,11 +375,20 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "🏆 排行榜":
         return await ranking(update)
 
-    if text == "📈 分組數據":
-        return await group_rank(update)
+    if text == "📊 分組數據":
+    return await group_rank(update)
 
-    if text == "👥 分組管理":
-        return await group_manage_menu(update)
+if text == "📊 分組詳細":
+    return await group_detail_stats(update)
+
+# ✅ 新增 2：導出數據
+if text == "📤 導出數據":
+    if update.effective_user.id != ADMIN_ID:
+        return await update.message.reply_text("❌ 只有群主可以導出數據")
+    return await update.message.reply_text("📤 導出功能開發中")
+
+if text == "👥 分組管理":
+    return await group_manage_menu(update)
 
     if text == "📝 填報數據":
         return await update.message.reply_text("選擇項目", reply_markup=report_menu())
