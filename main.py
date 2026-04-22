@@ -39,6 +39,7 @@ conn = psycopg2.connect(
 )
 conn.autocommit = True
 c = conn.cursor()
+
 def get_cursor():
     global conn, c
     try:
@@ -52,13 +53,11 @@ def get_cursor():
         conn.autocommit = True
         c = conn.cursor()
     return c
-def fix_group_case():
-    c = get_cursor()
-    c.execute("UPDATE users SET group_name = UPPER(group_name)")
-    c.execute("UPDATE stats SET group_name = UPPER(group_name)")
-    conn.commit()
-    print("✅ 分組大小寫已統一")
-# users
+
+
+# ===============================
+# ✅ 1️⃣ 建立所有資料表（順序很重要）
+# ===============================
 c.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id BIGINT PRIMARY KEY,
@@ -67,7 +66,12 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """)
 
-# stats（保留 group_name 歷史）
+c.execute("""
+CREATE TABLE IF NOT EXISTS groups (
+    name TEXT PRIMARY KEY
+)
+""")
+
 c.execute("""
 CREATE TABLE IF NOT EXISTS stats (
     user_id BIGINT,
@@ -83,6 +87,29 @@ CREATE TABLE IF NOT EXISTS stats (
 """)
 
 conn.commit()
+
+
+# ===============================
+# ✅ 2️⃣ 修正分組 + 同步 groups
+# ===============================
+def fix_group_case():
+    c = get_cursor()
+
+    # 統一大小寫
+    c.execute("UPDATE users SET group_name = UPPER(group_name)")
+    c.execute("UPDATE stats SET group_name = UPPER(group_name)")
+
+    # 同步 groups 表
+    c.execute("""
+    INSERT INTO groups (name)
+    SELECT DISTINCT UPPER(group_name)
+    FROM users
+    WHERE group_name IS NOT NULL
+    ON CONFLICT DO NOTHING
+    """)
+
+    conn.commit()
+    print("✅ 分組大小寫已統一 + groups 同步完成")
 
 def today():
     return datetime.now().date()  # 保持這個即可 ✅
@@ -298,7 +325,7 @@ async def view_data(update, context):
     await update.message.reply_text(msg)
 
 # ===== 排行榜 =====
-async def ranking(update):
+async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c = get_cursor()
     clean_old_data()
 
@@ -319,7 +346,7 @@ async def ranking(update):
 
     await update.message.reply_text(msg)
 # ===== 分組數據（所有小組總數）=====
-async def group_total_stats(update):
+async def group_total_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c = get_cursor()   # ⭐加這行
     clean_old_data()
 
@@ -354,7 +381,7 @@ async def group_total_stats(update):
     await update.message.reply_text(msg, reply_markup=main_menu())
     
 # ===== 每月 =====
-async def monthly(update):
+async def monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c = get_cursor()   # ⭐加這行
     clean_old_data()
 
@@ -491,15 +518,15 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ===== 排行榜 =====
     if text in ["🏆 排行榜"]:
-        return await ranking(update)
+        return await ranking(update, context)
 
     # ===== 分組總數 =====
     if text in ["📊 分组总数", "📊 分組總數"]:
-        return await group_total_stats(update)
+        return await group_total_stats(update, context)
 
     # ===== 每月報表 =====
     if text in ["📅 每月报表", "📅 每月報表"]:
-        return await monthly(update)
+        return await monthly(update, context)
 
     # ===== 分組數據 =====
     if text in ["📈 分组数据", "📈 分組數據"]:
@@ -608,31 +635,30 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ===== 建立分組流程 =====
     if context.user_data.get("mode") == "create_group":
-    
-        # ✅ 也要加這裡
+
         group_name = text.strip().upper()
 
-        c.execute("SELECT 1 FROM users WHERE group_name=%s", (group_name,))
+        # ✅ 檢查 groups
+        c.execute("SELECT 1 FROM groups WHERE name=%s", (group_name,))
         if c.fetchone():
             context.user_data.clear()
             return await update.message.reply_text("❌ 分組已存在", reply_markup=group_menu())
 
-        c.execute("SELECT group_name FROM users WHERE user_id=%s",
-                  (update.effective_user.id,))
-        old_group = c.fetchone()
+        # ✅ 建立分組（關鍵！！）
+        c.execute(
+            "INSERT INTO groups (name) VALUES (%s) ON CONFLICT DO NOTHING",
+            (group_name,)
+        )
 
-        if old_group and old_group[0]:
-            context.user_data["pending_group"] = group_name
-            context.user_data["confirm_override"] = True
-            return await update.message.reply_text(
-                f"⚠️ 你目前已在【{old_group[0]}】\n是否要建立新分組並覆蓋？（輸入：確認）"
-            )
+        # 👉 自己加入
+        c.execute(
+            "UPDATE users SET group_name=%s WHERE user_id=%s",
+            (group_name, update.effective_user.id)
+        )
 
-        c.execute("UPDATE users SET group_name=%s WHERE user_id=%s",
-                  (group_name, update.effective_user.id))
         conn.commit()
-
         context.user_data.clear()
+
         return await update.message.reply_text(
             f"✅ 分組已建立：{group_name}",
             reply_markup=group_menu()
@@ -645,7 +671,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         group_name = text.strip().upper()
 
         # ✅ 檢查分組是否存在（優化）
-        c.execute("SELECT 1 FROM users WHERE group_name=%s LIMIT 1", (group_name,))
+        c.execute("SELECT 1 FROM groups WHERE name=%s", (group_name,))
         if not c.fetchone():
             return await update.message.reply_text(
                 "❌ 分組不存在",
@@ -665,6 +691,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """, (group_name, user_id, today()))
 
         conn.commit()
+        fix_group_case()
         context.user_data.clear()
 
         return await update.message.reply_text(
@@ -673,7 +700,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 # ===== RUN =====
 def main():
-    fix_group_case()  # 👈 加這行（一定要）
+    get_cursor()      # ✅ 就是加在這裡（第一行）
+    fix_group_case()  # 👍 原本就有
 
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -682,9 +710,7 @@ def main():
 
     print("Bot started...")
 
-    # ✅ 這一行就夠了（會自動清掉 pending updates）
     app.run_polling(drop_pending_updates=True)
-
 
 if __name__ == "__main__":
     main()
