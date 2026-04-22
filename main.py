@@ -602,7 +602,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ===== 建立分組流程 =====
     if context.user_data.get("mode") == "create_group":
-        group_name = text
+    
+        # ✅ 也要加這裡
+        group_name = text.strip().upper()
 
         c.execute("SELECT 1 FROM users WHERE group_name=%s", (group_name,))
         if c.fetchone():
@@ -633,7 +635,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ===== 加入分組流程（✅ 正確位置）=====
     if context.user_data.get("mode") == "join_group":
         user_id = update.effective_user.id
-        group_name = text
+        # ✅ 就放這裡
+        group_name = text.strip().upper()
 
         # ✅ 檢查分組是否存在（優化）
         c.execute("SELECT 1 FROM users WHERE group_name=%s LIMIT 1", (group_name,))
@@ -659,9 +662,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
 
         return await update.message.reply_text(
-            f"✅ 已加入：{group_name}",
-            reply_markup=group_menu()
-        )
+        f"✅ 已加入：{group_name}\n（你目前的分組）",
+        reply_markup=group_menu()
+    )
 # ===== RUN =====
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
