@@ -700,6 +700,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 # ===== RUN =====
 def main():
+    print("DATABASE_URL =", DATABASE_URL)  # ⭐加這行（就這裡）
+    
     get_cursor()      # ✅ 就是加在這裡（第一行）
     fix_group_case()  # 👍 原本就有
 
