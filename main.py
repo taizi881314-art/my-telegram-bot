@@ -52,6 +52,12 @@ def get_cursor():
         conn.autocommit = True
         c = conn.cursor()
     return c
+def fix_group_case():
+    c = get_cursor()
+    c.execute("UPDATE users SET group_name = UPPER(group_name)")
+    c.execute("UPDATE stats SET group_name = UPPER(group_name)")
+    conn.commit()
+    print("✅ 分組大小寫已統一")
 # users
 c.execute("""
 CREATE TABLE IF NOT EXISTS users (
@@ -667,6 +673,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 # ===== RUN =====
 def main():
+    fix_group_case()  # 👈 加這行（一定要）
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
