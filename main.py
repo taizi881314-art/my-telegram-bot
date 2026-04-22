@@ -640,12 +640,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text(f"✅ 已加入：{text}", reply_markup=group_menu())
 
 # ===== RUN =====
-def main():
+async def main():
     import asyncio
     asyncio.get_event_loop().set_debug(False)
 
     app = ApplicationBuilder().token(TOKEN).build()
 
+    # ✅ 正確位置
     await app.bot.delete_webhook(drop_pending_updates=True)
 
     app.add_handler(CommandHandler("start", start))
@@ -653,7 +654,9 @@ def main():
 
     print("Bot started...")
 
-    app.run_polling(drop_pending_updates=True)
+    await app.run_polling()
+    
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
