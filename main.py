@@ -128,10 +128,11 @@ async def view_group_members(update, context):
     await update.message.reply_text(msg, reply_markup=group_menu())
     
 # ===== 查看自己分組 =====
-async def my_group(update):
+async def my_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     c = get_cursor()
+
     c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
     result = c.fetchone()
 
@@ -585,7 +586,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await view_group_members(update, context)
 
     if text in ["👤 我的分組"]:
-        return await my_group(update)
+        return await my_group(update, context)
 
     # ===== 建立分組 =====
     if text in ["➕ 建立分組"]:
@@ -603,13 +604,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("mode") == "create_group":
         group_name = text
 
-        # 1️⃣ 檢查分組是否已存在
         c.execute("SELECT 1 FROM users WHERE group_name=%s", (group_name,))
         if c.fetchone():
             context.user_data.clear()
             return await update.message.reply_text("❌ 分組已存在", reply_markup=group_menu())
 
-        # 2️⃣ 👉 放這裡（檢查自己是否已有分組）
         c.execute("SELECT group_name FROM users WHERE user_id=%s",
                   (update.effective_user.id,))
         old_group = c.fetchone()
@@ -621,7 +620,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"⚠️ 你目前已在【{old_group[0]}】\n是否要建立新分組並覆蓋？（輸入：確認）"
             )
 
-        # 3️⃣ 再執行建立（更新）
         c.execute("UPDATE users SET group_name=%s WHERE user_id=%s",
                   (group_name, update.effective_user.id))
         conn.commit()
@@ -631,14 +629,39 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ 分組已建立：{group_name}",
             reply_markup=group_menu()
         )
-    
-    # ===== 加入分組流程 =====
+
+    # ===== 加入分組流程（✅ 正確位置）=====
     if context.user_data.get("mode") == "join_group":
-        c.execute("UPDATE users SET group_name=%s WHERE user_id=%s", (text, update.effective_user.id))
+        user_id = update.effective_user.id
+        group_name = text
+
+        # ✅ 檢查分組是否存在（優化）
+        c.execute("SELECT 1 FROM users WHERE group_name=%s LIMIT 1", (group_name,))
+        if not c.fetchone():
+            return await update.message.reply_text(
+                "❌ 分組不存在",
+                reply_markup=group_menu()
+            )
+
+        # 原本邏輯（保留）
+        c.execute(
+            "UPDATE users SET group_name=%s WHERE user_id=%s",
+            (group_name, user_id)
+        )
+
+        c.execute("""
+            UPDATE stats 
+            SET group_name=%s
+            WHERE user_id=%s AND date=%s
+        """, (group_name, user_id, today()))
+
         conn.commit()
         context.user_data.clear()
-        return await update.message.reply_text(f"✅ 已加入：{text}", reply_markup=group_menu())
 
+        return await update.message.reply_text(
+            f"✅ 已加入：{group_name}",
+            reply_markup=group_menu()
+        )
 # ===== RUN =====
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
