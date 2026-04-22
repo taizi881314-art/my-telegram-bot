@@ -334,7 +334,7 @@ async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     FROM users u
     JOIN stats s 
         ON u.user_id = s.user_id 
-        AND s.date = %s
+        AND s.date = CURRENT_DATE
     GROUP BY u.user_id
     ORDER BY SUM(s.打粉) DESC 
     LIMIT 10
@@ -358,7 +358,7 @@ async def group_total_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     FROM users u
     LEFT JOIN stats s 
         ON u.user_id = s.user_id 
-        AND s.date = %s
+        AND s.date = CURRENT_DATE
     GROUP BY COALESCE(u.group_name,'未分組')
     """,(today(),))
 
@@ -390,7 +390,7 @@ async def monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
     SUM(s.打粉),SUM(s.回復),SUM(s.新增),SUM(s.回訪),SUM(s.熱聊)
     FROM users u
     LEFT JOIN stats s ON u.user_id=s.user_id
-    WHERE to_char(s.date, 'YYYY-MM') = to_char(NOW(), 'YYYY-MM')
+    WHERE DATE_TRUNC('month', s.date) = DATE_TRUNC('month', CURRENT_DATE)
     GROUP BY u.user_id
     """)
 
@@ -540,7 +540,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         FROM users u
         LEFT JOIN stats s 
             ON u.user_id = s.user_id 
-            AND s.date = %s
+            AND s.date = CURRENT_DATE
         GROUP BY COALESCE(u.group_name,'未分組')
         """,(today(),))
 
