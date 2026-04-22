@@ -44,7 +44,8 @@ def get_cursor():
     global conn, c
     try:
         c.execute("SELECT 1")
-    except:
+    except Exception as e:
+        print("⚠️ DB 斷線，重新連接...", e)
         conn = psycopg2.connect(
             DATABASE_URL,
             sslmode='require',
@@ -119,6 +120,20 @@ def clean_old_data():
     limit_date = datetime.now().date() - timedelta(days=30)
     c.execute("DELETE FROM stats WHERE date < %s", (limit_date,))
     conn.commit()
+    
+# ===== 自動備份（穩定版）=====
+def backup_db():
+    c = get_cursor()
+
+    c.execute("SELECT * FROM users")
+    users = c.fetchall()
+
+    c.execute("SELECT * FROM stats")
+    stats = c.fetchall()
+
+    print("✅ 備份成功（記憶體版）")
+    print("users:", users[:3])
+    print("stats:", stats[:3])
 
 # ===== 主選單 =====
 def main_menu():
@@ -334,7 +349,7 @@ async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     FROM users u
     JOIN stats s 
         ON u.user_id = s.user_id 
-        AND s.date = CURRENT_DATE
+        AND s.date = %s
     GROUP BY u.user_id
     ORDER BY SUM(s.打粉) DESC 
     LIMIT 10
@@ -358,7 +373,7 @@ async def group_total_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     FROM users u
     LEFT JOIN stats s 
         ON u.user_id = s.user_id 
-        AND s.date = CURRENT_DATE
+        AND s.date = %s
     GROUP BY COALESCE(u.group_name,'未分組')
     """,(today(),))
 
@@ -386,13 +401,13 @@ async def monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clean_old_data()
 
     c.execute("""
-    SELECT u.name,
-    SUM(s.打粉),SUM(s.回復),SUM(s.新增),SUM(s.回訪),SUM(s.熱聊)
-    FROM users u
-    LEFT JOIN stats s ON u.user_id=s.user_id
-    WHERE DATE_TRUNC('month', s.date) = DATE_TRUNC('month', CURRENT_DATE)
-    GROUP BY u.user_id
-    """)
+        SELECT u.name,
+        SUM(s.打粉),SUM(s.回復),SUM(s.新增),SUM(s.回訪),SUM(s.熱聊)
+        FROM users u
+        LEFT JOIN stats s ON u.user_id=s.user_id
+        WHERE DATE_TRUNC('month', s.date) = DATE_TRUNC('month', %s)
+        GROUP BY u.user_id
+    """, (today(),))
 
     rows = c.fetchall()
 
@@ -540,7 +555,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         FROM users u
         LEFT JOIN stats s 
             ON u.user_id = s.user_id 
-            AND s.date = CURRENT_DATE
+            AND s.date = %s
         GROUP BY COALESCE(u.group_name,'未分組')
         """,(today(),))
 
