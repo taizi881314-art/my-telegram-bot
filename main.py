@@ -641,20 +641,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===== RUN =====
 def main():
-    import asyncio
-    asyncio.get_event_loop().set_debug(False)
-
     app = ApplicationBuilder().token(TOKEN).build()
-
-    # ✅ 用這個（不用 await）
-    import asyncio
-    asyncio.run(app.bot.delete_webhook(drop_pending_updates=True))
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
     print("Bot started...")
 
+    # ✅ 這一行就夠了（會自動清掉 pending updates）
     app.run_polling(drop_pending_updates=True)
 
 
