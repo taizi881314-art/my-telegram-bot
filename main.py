@@ -37,7 +37,7 @@ conn = psycopg2.connect(
     sslmode='require',
     connect_timeout=10
 )
-conn.autocommit = True
+conn.autocommit = False
 c = conn.cursor()
 
 def get_cursor():
@@ -51,7 +51,7 @@ def get_cursor():
             sslmode='require',
             connect_timeout=10
         )
-        conn.autocommit = True
+        conn.autocommit = False
         c = conn.cursor()
     return c
 
@@ -363,7 +363,6 @@ async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===== 分組數據（所有小組總數）=====
 async def group_total_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c = get_cursor()   # ⭐加這行
-    clean_old_data()
 
     c.execute("""
     SELECT 
@@ -488,6 +487,20 @@ WHERE user_id=%s AND date=%s
 # ===== handle =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c = get_cursor()   # ⭐一定要加
+
+    # ✅ 就是這裡（唯一正確位置）
+    user_id = update.effective_user.id
+    name = update.effective_user.first_name
+
+    c.execute("""
+    INSERT INTO users (user_id, name, group_name)
+    VALUES (%s,%s,%s)
+    ON CONFLICT (user_id) DO NOTHING
+    """, (user_id, name, None))
+
+    conn.commit()
+
+    # 👇 原本程式
     text = update.message.text.strip()
     
     # ===== 覆蓋確認（⭐一定要放最前面）=====
@@ -706,7 +719,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """, (group_name, user_id, today()))
 
         conn.commit()
-        fix_group_case()
         context.user_data.clear()
 
         return await update.message.reply_text(
