@@ -562,6 +562,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===== RUN =====
 def main():
+    import asyncio
+    asyncio.get_event_loop().set_debug(False)
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -569,8 +572,7 @@ def main():
 
     print("Bot started...")
 
-    app.run_polling(drop_pending_updates=True)
-
+    app.run_polling(drop_pending_updates=True, allowed_updates=[])
 
 if __name__ == "__main__":
     main()
