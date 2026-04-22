@@ -646,6 +646,8 @@ def main():
 
     app = ApplicationBuilder().token(TOKEN).build()
 
+    await app.bot.delete_webhook(drop_pending_updates=True)
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
