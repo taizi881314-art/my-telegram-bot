@@ -673,6 +673,40 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             return await update.message.reply_text("請輸入【確認】或【取消】")
 
+    # ===== 建立分組流程 =====
+    if context.user_data.get("mode") == "create_group":
+
+        group_name = text.strip().upper()
+
+        # ✅ 檢查 groups
+        c.execute("SELECT 1 FROM groups WHERE name=%s", (group_name,))
+        if c.fetchone():
+            context.user_data.clear()
+            return await update.message.reply_text("❌ 分組已存在", reply_markup=group_menu())
+
+        # ✅ 建立分組（關鍵！！）
+        c.execute(
+            "INSERT INTO groups (name, owner_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+            (group_name, update.effective_user.id)
+        )
+
+        # 👉 自己加入
+        c.execute(
+            "UPDATE users SET group_name=%s WHERE user_id=%s",
+            (group_name, update.effective_user.id)
+        )
+
+        conn.commit()
+        context.user_data.clear()
+
+        return await update.message.reply_text(
+            f"✅ 分組已建立：{group_name}",
+            reply_markup=group_menu()
+        )
+
+
+
+
     # ===== 返回主选单 =====
     if text in ["🔙 返回主選單", "返回主選單"]:
         context.user_data.clear()
@@ -885,36 +919,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 resize_keyboard=True,
                 one_time_keyboard=True
             )
-        )
-    # ===== 建立分組流程 =====
-    if context.user_data.get("mode") == "create_group":
-
-        group_name = text.strip().upper()
-
-        # ✅ 檢查 groups
-        c.execute("SELECT 1 FROM groups WHERE name=%s", (group_name,))
-        if c.fetchone():
-            context.user_data.clear()
-            return await update.message.reply_text("❌ 分組已存在", reply_markup=group_menu())
-
-        # ✅ 建立分組（關鍵！！）
-        c.execute(
-            "INSERT INTO groups (name, owner_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
-            (group_name, update.effective_user.id)
-        )
-
-        # 👉 自己加入
-        c.execute(
-            "UPDATE users SET group_name=%s WHERE user_id=%s",
-            (group_name, update.effective_user.id)
-        )
-
-        conn.commit()
-        context.user_data.clear()
-
-        return await update.message.reply_text(
-            f"✅ 分組已建立：{group_name}",
-            reply_markup=group_menu()
         )
 
     # ===== 加入分組流程（升級版）=====
