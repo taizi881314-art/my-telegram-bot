@@ -884,7 +884,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("請輸入分組名稱")
 
     # ===== 加入分組（升級版）=====
-    if text in ["👤 加入分組"]:
+    if text in ["👤 加入分組", "加入分組"]:
         groups = get_all_groups()
 
         if not groups:
@@ -904,37 +904,27 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )
 
-    # ===== 加入分組流程（升級版）=====
+    # ⭐⭐⭐ ⭐⭐⭐ ⭐⭐⭐ 就是要放在這裡 ⭐⭐⭐ ⭐⭐⭐ ⭐⭐⭐
     if context.user_data.get("mode") == "join_group":
-        user_id = update.effective_user.id
         group_name = text.strip().upper()
 
-        groups = get_all_groups()
+        groups = [g.upper() for g in get_all_groups()]
 
         if group_name not in groups:
-            return await update.message.reply_text("❌ 請點擊按鈕選擇分組")
+            return await update.message.reply_text("❌ 請點按按鈕選擇分組")
 
-        # 🚨 人數限制（新增）
+        # 🚨 人數限制
         limit = get_group_limit(group_name)
         count = count_group_members(group_name)
 
         if count >= limit:
-            return await update.message.reply_text(
-                f"❌ 此分組已滿 ({limit}人)"
-            )
+            return await update.message.reply_text(f"❌ 此分組已滿（{limit}人）")
 
-        # 更新 users
+        # 👉 加入分組
         c.execute(
             "UPDATE users SET group_name=%s WHERE user_id=%s",
             (group_name, user_id)
         )
-
-        # ⭐⭐⭐ 要在這裡（縮進 inside）
-        c.execute("""
-            UPDATE stats 
-            SET group_name=%s
-            WHERE user_id=%s AND date=%s
-        """, (group_name, user_id, today()))
 
         conn.commit()
         context.user_data.clear()
@@ -943,21 +933,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ 成功加入分組：{group_name}",
             reply_markup=main_menu()
         )
-
-    mode = context.user_data.get("mode")
-
-    # ⭐⭐⭐ 改這裡（允許建立分組流程通過）
-    if mode not in ["join_group", "create_group"]:
-        if no_group and text not in ["👥 分組管理", "👤 加入分組", "➕ 建立分組"]:
-            return await update.message.reply_text(
-                "❌ 你尚未加入分組\n👉 請先加入分組",
-                reply_markup=ReplyKeyboardMarkup(
-                    [["👤 加入分組"]],
-                    resize_keyboard=True,
-                    one_time_keyboard=True
-                )
-            )
-        
 # ===== RUN =====
 def main():
     print("DATABASE_URL =", DATABASE_URL)  # ⭐加這行（就這裡）
