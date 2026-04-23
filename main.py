@@ -672,6 +672,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             return await update.message.reply_text("請輸入【確認】或【取消】")
+        
+    # ===== 返回主选单 =====
+    if text in ["🔙 返回主選單", "返回主選單"]:
+        context.user_data.clear()
+        return await update.message.reply_text("返回主選單", reply_markup=main_menu())
 
     # ===== 建立分組流程 =====
     if context.user_data.get("mode") == "create_group":
@@ -703,11 +708,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ 分組已建立：{group_name}",
             reply_markup=group_menu()
         )
-        
-    # ===== 返回主选单 =====
-    if text in ["🔙 返回主選單", "返回主選單"]:
-        context.user_data.clear()
-        return await update.message.reply_text("返回主選單", reply_markup=main_menu())
 
     # ===== 填報流程（最高優先）=====
     handled = await handle_report(update, context)
