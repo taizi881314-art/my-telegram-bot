@@ -703,10 +703,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ 分組已建立：{group_name}",
             reply_markup=group_menu()
         )
-
-
-
-
+        
     # ===== 返回主选单 =====
     if text in ["🔙 返回主選單", "返回主選單"]:
         context.user_data.clear()
@@ -728,20 +725,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ===== 排行榜 =====
     if text in ["🏆 排行榜"]:
         return await ranking(update, context)
-
-    # ===== ⭐ 最後才做：沒分組限制 =====
-    mode = context.user_data.get("mode")
-
-    if mode not in ["join_group", "create_group"]:
-        if no_group and text not in ["👥 分組管理", "👤 加入分組", "➕ 建立分組"]:
-            return await update.message.reply_text(
-                "❌ 你尚未加入分組\n👉 請先加入分組",
-                reply_markup=ReplyKeyboardMarkup(
-                    [["👤 加入分組"]],
-                    resize_keyboard=True,
-                    one_time_keyboard=True
-                )
-            )
 
     # ===== 組長踢人 =====
     if text.startswith("/kick"):
@@ -960,6 +943,20 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ 成功加入分組：{group_name}",
             reply_markup=main_menu()
         )
+
+    mode = context.user_data.get("mode")
+
+    # ⭐⭐⭐ 改這裡（允許建立分組流程通過）
+    if mode not in ["join_group", "create_group"]:
+        if no_group and text not in ["👥 分組管理", "👤 加入分組", "➕ 建立分組"]:
+            return await update.message.reply_text(
+                "❌ 你尚未加入分組\n👉 請先加入分組",
+                reply_markup=ReplyKeyboardMarkup(
+                    [["👤 加入分組"]],
+                    resize_keyboard=True,
+                    one_time_keyboard=True
+                )
+            )
         
 # ===== RUN =====
 def main():
