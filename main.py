@@ -634,8 +634,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
     result = c.fetchone()
 
-    no_group = (not result or not result[0])
-
     # ✅ 就是這裡（唯一正確位置）
     user_id = update.effective_user.id
     name = update.effective_user.first_name
@@ -678,10 +676,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return await update.message.reply_text("返回主選單", reply_markup=main_menu())
 
-    # ===== 建立分組流程 =====
-    if context.user_data.get("mode") == "create_group":
-
-        group_name = text.strip().upper()
+        # ===== 建立分組流程 =====
+        if context.user_data.get("mode") == "create_group":
+            if text.startswith("📊") or text.startswith("👥") or text.startswith("🏆"):
+                return await update.message.reply_text("❌ 請輸入分組名稱")
+                group_name = text.strip().upper()
 
         # ✅ 檢查 groups
         c.execute("SELECT 1 FROM groups WHERE name=%s", (group_name,))
@@ -880,7 +879,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text in ["➕ 建立分組"]:
         if not await is_admin(update, context):
             return await update.message.reply_text("❌ 只有管理員可以建立分組")
-        context.user_data["mode"] = "create_group"
+
+        context.user_data["mode"] = "create_group"   # ⭐⭐⭐ 關鍵就在這一行
+
         return await update.message.reply_text("請輸入分組名稱")
 
     # ===== 加入分組（升級版）=====
