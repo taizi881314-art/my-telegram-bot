@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS stats (
     新增 INTEGER DEFAULT 0,
     回訪 INTEGER DEFAULT 0,
     熱聊 INTEGER DEFAULT 0,
-    UNIQUE(user_id, date)
+    UNIQUE(user_id, date),
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 )
 """)
