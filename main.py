@@ -637,14 +637,18 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     no_group = (not result or not result[0])
 
     if no_group and text not in ["👥 分組管理", "👤 加入分組", "➕ 建立分組", "/start"]:
-        return await update.message.reply_text(
-            "❌ 你尚未加入分組\n👉 請先加入分組",
-            reply_markup=ReplyKeyboardMarkup(
-                [["👤 加入分組"]],
-                resize_keyboard=True,
-                one_time_keyboard=True
+        # ⭐⭐⭐ 加這行（超關鍵）
+        if context.user_data.get("mode") == "join_group":
+            pass
+        else:
+            return await update.message.reply_text(
+                "❌ 你尚未加入分組\n👉 請先加入分組",
+                reply_markup=ReplyKeyboardMarkup(
+                    [["👤 加入分組"]],
+                    resize_keyboard=True,
+                    one_time_keyboard=True
+                )
             )
-        )
     # ✅ 就是這裡（唯一正確位置）
     user_id = update.effective_user.id
     name = update.effective_user.first_name
