@@ -46,7 +46,7 @@ conn.autocommit = False
 c = conn.cursor()
 
 def get_cursor():
-    global conn, c
+    global conn, c   # ⭐ 必加
     try:
         c.execute("SELECT 1")
     except Exception as e:
@@ -308,10 +308,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     c.execute("""
-INSERT INTO users (user_id, name, group_name)
-VALUES (%s,%s,%s)
-ON CONFLICT (user_id) DO NOTHING
-""", (user.id, user.first_name, None))
+        INSERT INTO users (user_id, name, group_name)
+        VALUES (%s,%s,%s)
+        ON CONFLICT (user_id) DO NOTHING
+        """, (user.id, user.first_name, None))
     conn.commit()
 
     await update.message.reply_text(
@@ -611,11 +611,11 @@ UPDATE stats SET group_name=%s
 WHERE user_id=%s AND date=%s
 """, (group, user_id, today()))
 
-      # 👉 更新数据
+    # 👉 更新数据
     c.execute(
-    f'UPDATE stats SET "{field}" = COALESCE("{field}",0) + %s WHERE user_id=%s AND date=%s',
-    (value, user_id, today())
-)
+        f'UPDATE stats SET "{field}" = COALESCE("{field}",0) + %s WHERE user_id=%s AND date=%s',
+        (value, user_id, today())
+    )
     conn.commit()
 
     context.user_data.clear()
@@ -627,7 +627,7 @@ WHERE user_id=%s AND date=%s
 # ===== handle =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c = get_cursor()   # ⭐一定要加
-    user_id = update.effective_user.id
+    user_id = update.effective_user.id   # ⭐⭐⭐ 一定要先放這
     text = update.message.text.strip()
 
     # ⭐⭐⭐ 放這裡（限制）
@@ -636,19 +636,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     no_group = (not result or not result[0])
 
-    if no_group and text not in ["👥 分組管理", "👤 加入分組", "➕ 建立分組", "/start"]:
-        # ⭐⭐⭐ 加這行（超關鍵）
-        if context.user_data.get("mode") == "join_group":
-            pass
-        else:
-            return await update.message.reply_text(
-                "❌ 你尚未加入分組\n👉 請先加入分組",
-                reply_markup=ReplyKeyboardMarkup(
-                    [["👤 加入分組"]],
-                    resize_keyboard=True,
-                    one_time_keyboard=True
-                )
-            )
     # ✅ 就是這裡（唯一正確位置）
     user_id = update.effective_user.id
     name = update.effective_user.first_name
@@ -658,7 +645,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     VALUES (%s,%s,%s)
     ON CONFLICT (user_id) DO NOTHING
     """, (user_id, name, None))
-
     conn.commit()
 
     # 👇 原本程式
@@ -708,6 +694,20 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ===== 排行榜 =====
     if text in ["🏆 排行榜"]:
         return await ranking(update, context)
+
+    # ===== ⭐ 最後才做：沒分組限制 =====
+    mode = context.user_data.get("mode")
+
+    if mode not in ["join_group", "create_group"]:
+        if no_group and text not in ["👥 分組管理", "👤 加入分組", "➕ 建立分組"]:
+            return await update.message.reply_text(
+                "❌ 你尚未加入分組\n👉 請先加入分組",
+                reply_markup=ReplyKeyboardMarkup(
+                    [["👤 加入分組"]],
+                    resize_keyboard=True,
+                    one_time_keyboard=True
+                )
+            )
 
     # ===== 組長踢人 =====
     if text.startswith("/kick"):
@@ -946,8 +946,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         c.execute("""
             UPDATE stats 
             SET group_name=%s
-            WHERE user_id=%s
-        """, (group_name, user_id))
+            WHERE user_id=%s AND date=%s
+        """, (group_name, user_id, today()))
 
         conn.commit()
         context.user_data.clear()
