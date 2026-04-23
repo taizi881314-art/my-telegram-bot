@@ -339,27 +339,104 @@ async def view_data(update, context):
 
     await update.message.reply_text(msg)
 
-# ===== 排行榜 =====
+# ===== 手動排行榜（⭐加在這裡）=====
 async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c = get_cursor()
     clean_old_data()
 
     c.execute("""
-    SELECT u.name, SUM(s.打粉)
+    SELECT u.name,
+           COALESCE(s.打粉,0)
     FROM users u
-    JOIN stats s 
-        ON u.user_id = s.user_id 
-        AND s.date = %s
-    GROUP BY u.user_id
-    ORDER BY SUM(s.打粉) DESC 
+    LEFT JOIN stats s
+        ON u.user_id = s.user_id AND s.date = %s
+    ORDER BY COALESCE(s.打粉,0) DESC
     LIMIT 10
     """, (today(),))
 
+    rows = c.fetchall()
+
+    if not rows:
+        return await update.message.reply_text("❌ 今日沒有數據")
+
+    medals = ["🥇","🥈","🥉"]
+
     msg = "🏆 今日排行榜\n\n"
-    for i, r in enumerate(c.fetchall(), 1):
-        msg += f"{i}. {r[0]} 打粉:{r[1] or 0}\n"
+
+    for i, r in enumerate(rows, 1):
+        medal = medals[i-1] if i <= 3 else f"{i}."
+        msg += f"{medal} {r[0]} 打粉:{r[1]}\n"
 
     await update.message.reply_text(msg)
+
+# ===== 自動推送排行榜 =====
+async def auto_send_ranking(context: ContextTypes.DEFAULT_TYPE):
+    c = get_cursor()
+    conn.commit()  # ⭐ 就加在這裡（最重要）
+    clean_old_data()
+
+    # ===== 個人排行榜 =====
+    c.execute("""
+    SELECT u.name,
+           COALESCE(s.打粉,0),
+           COALESCE(s.回復,0),
+           COALESCE(s.新增,0),
+           COALESCE(s.回訪,0),
+           COALESCE(s.熱聊,0)
+    FROM users u
+    LEFT JOIN stats s
+        ON u.user_id = s.user_id AND s.date = %s
+    ORDER BY COALESCE(s.打粉,0) DESC
+    LIMIT 10
+    """, (today(),))
+
+    rows = c.fetchall()
+    if not rows:
+        return
+
+    medals = ["🥇", "🥈", "🥉"]
+
+    msg = "🏆 今日排行榜\n\n"
+
+    for i, r in enumerate(rows, 1):
+        medal = medals[i-1] if i <= 3 else f"{i}."
+        msg += (
+            f"{medal} {r[0]}\n"
+            f"👉 打粉:{r[1]} 回復:{r[2]} 新增:{r[3]} 回訪:{r[4]} 熱聊:{r[5]}\n\n"
+        )
+
+    # ===== 分組排行榜 =====
+    c.execute("""
+    SELECT 
+        COALESCE(u.group_name,'未分組'),
+        SUM(COALESCE(s.打粉,0)),
+        SUM(COALESCE(s.回復,0)),
+        SUM(COALESCE(s.新增,0)),
+        SUM(COALESCE(s.回訪,0)),
+        SUM(COALESCE(s.熱聊,0))
+    FROM users u
+    LEFT JOIN stats s 
+        ON u.user_id = s.user_id 
+        AND s.date = %s
+    GROUP BY COALESCE(u.group_name,'未分組')
+    ORDER BY SUM(COALESCE(s.打粉,0)) DESC
+    """, (today(),))
+
+    group_rows = c.fetchall()
+
+    msg += "🏆 分組排行榜\n\n"
+
+    for i, r in enumerate(group_rows, 1):
+        medal = medals[i-1] if i <= 3 else f"{i}."
+        msg += (
+            f"{medal} {r[0]}\n"
+            f"👉 打粉:{r[1]} 回復:{r[2]} 新增:{r[3]} 回訪:{r[4]} 熱聊:{r[5]}\n\n"
+        )
+
+    await context.bot.send_message(
+        chat_id=GROUP_CHAT_ID,
+        text=msg
+    )
 # ===== 分組數據（所有小組總數）=====
 async def group_total_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c = get_cursor()   # ⭐加這行
@@ -736,6 +813,17 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+    # ✅ ⭐ 加在這裡（這段是關鍵）
+    from datetime import time
+    import pytz
+    
+    job_queue = app.job_queue  # ⭐⭐⭐ 這行一定要加
+
+    job_queue.run_daily(
+        auto_send_ranking,
+        time=time(hour=23, minute=0, second=0, tzinfo=pytz.timezone("Asia/Taipei"))
+    )
 
     print("Bot started...")
 
