@@ -128,7 +128,7 @@ def get_all_groups():
     return [row[0] for row in c.fetchall()]
 
 
-return owner is not None and update.effective_user.id == owner
+def get_group_owner(group_name):
     c = get_cursor()
     c.execute("SELECT owner_id FROM groups WHERE name=%s", (group_name,))
     r = c.fetchone()
