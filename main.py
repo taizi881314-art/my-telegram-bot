@@ -500,6 +500,15 @@ async def handle_report(update, context):
     text = update.message.text.strip()
     user_id = update.effective_user.id
 
+    # ✅ 加在這裡（防亂填報）
+    c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
+    result = c.fetchone()
+
+    if not result or not result[0]:
+        return await update.message.reply_text(
+        "❌ 你還沒加入分組\n👉 請先到「分組管理」加入分組"
+    )
+
     mapping = {
         "今日打粉":"打粉",
         "今日回復":"回復",
@@ -712,8 +721,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
            
     # ===== 導出數據 =====
     if text in ["📤 导出数据", "📤 導出數據"]:
-        if update.effective_user.id != ADMIN_ID:
-            return await update.message.reply_text("❌ 只有群主可以導出數據")
+        if not await is_admin(update, context):
+            return await update.message.reply_text("❌ 無權限操作")
         return await export_data(update, context)
 
     # ===== 分組管理 =====
