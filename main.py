@@ -541,7 +541,7 @@ async def monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===== 填報 =====
 async def handle_report(update, context):
     with get_cursor() as (conn, c):
-        text = normalize_text(update.message.text)
+        text = update.message.text.strip()   ✅ 改成這個
         user_id = update.effective_user.id
 
         c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
