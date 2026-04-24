@@ -279,9 +279,9 @@ async def export_data(update, context):
                 await update.message.reply_document(document=f)
             os.remove(file_name)   # ⭐⭐⭐ 加這行
 
-        except Exception as e:
-            print("导出错误：", e)
-            await update.message.reply_text(f"❌ 导出失败：{e}")
+    except Exception as e:
+        print("导出错误：", e)
+        await update.message.reply_text(f"❌ 导出失败：{e}")
 # ===== 填報選單 =====
 def report_menu():
     return ReplyKeyboardMarkup([
