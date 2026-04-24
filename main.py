@@ -721,7 +721,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text in ["👤 我的分組"]:
         return await my_group(update, context)
 
-    if text in ["➕ 建立分組"]:
+    if text in ["➕ 建立分組", "+ 建立分組"]:
         if not await is_admin(update, context):
             return await update.message.reply_text("❌ 只有管理員可以建立分組")
 
