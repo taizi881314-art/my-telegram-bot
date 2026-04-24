@@ -900,7 +900,6 @@ def main():
     import pytz
     
     job_queue = app.job_queue  # ⭐⭐⭐ 這行一定要加
-    job_queue.start()   # ⭐⭐⭐ 加這行（保險）
 
     job_queue.run_daily(
         auto_send_ranking,
