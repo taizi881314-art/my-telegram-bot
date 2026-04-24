@@ -676,18 +676,19 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return await update.message.reply_text("返回主選單", reply_markup=main_menu())
 
-        # ===== 建立分組流程 =====
-        if context.user_data.get("mode") == "create_group":
-            if text.startswith("📊") or text.startswith("👥") or text.startswith("🏆"):
-                return await update.message.reply_text("❌ 請輸入分組名稱")
-                group_name = text.strip().upper()
+    # ===== 建立分組流程 =====
+    if context.user_data.get("mode") == "create_group":
+        if any(text.startswith(x) for x in ["📊","👥","🏆","📈","📤","👤","📝"]):
+             return await update.message.reply_text("❌ 請輸入分組名稱")
+        group_name = text.strip().upper()
 
         # ✅ 檢查 groups
         c.execute("SELECT 1 FROM groups WHERE name=%s", (group_name,))
         if c.fetchone():
-            context.user_data.clear()
-            return await update.message.reply_text("❌ 分組已存在", reply_markup=group_menu())
-
+            return await update.message.reply_text(
+                f"✅ 分組已建立：{group_name}",
+                reply_markup=group_menu()
+            )
         # ✅ 建立分組（關鍵！！）
         c.execute(
             "INSERT INTO groups (name, owner_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
@@ -707,6 +708,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ 分組已建立：{group_name}",
             reply_markup=group_menu()
         )
+            context.user_data.clear()
+            return await update.message.reply_text("❌ 分組已存在", reply_markup=group_menu())
 
     # ===== 填報流程（最高優先）=====
     handled = await handle_report(update, context)
@@ -825,9 +828,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clean_old_data()
 
         user_id = update.effective_user.id
+
+        # ⭐ 一定要重新查
         c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
         result = c.fetchone()
 
+        # 再判斷
         if not result or not result[0]:
             return await update.message.reply_text("❌ 你沒有分組", reply_markup=main_menu())
 
