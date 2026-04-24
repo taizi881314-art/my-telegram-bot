@@ -475,6 +475,44 @@ async def group_total_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(msg, reply_markup=main_menu())
 
+# ===== 分組詳細 =====
+async def group_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    with get_cursor() as (conn, c):
+        c.execute("""
+        SELECT 
+            u.group_name,
+            u.name,
+            COALESCE(s."打粉",0),
+            COALESCE(s."回復",0),
+            COALESCE(s."新增",0),
+            COALESCE(s."回訪",0),
+            COALESCE(s."熱聊",0)
+        FROM users u
+        LEFT JOIN stats s
+        ON u.user_id = s.user_id AND s.date=%s
+        ORDER BY u.group_name
+        """, (today(),))
+
+        rows = c.fetchall()
+
+        if not rows:
+            return await update.message.reply_text("❌ 沒有數據")
+
+        msg = "📊 分組詳細（今日）\n\n"
+
+        current_group = None
+
+        for r in rows:
+            group = r[0] or "未分組"
+
+            if group != current_group:
+                msg += f"\n【{group}】\n"
+                current_group = group
+
+            msg += f"{r[1]} 👉 打粉:{r[2]} 回復:{r[3]} 新增:{r[4]} 回訪:{r[5]} 熱聊:{r[6]}\n"
+
+        await update.message.reply_text(msg)
+
 
 # ===== 每月 =====
 async def monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -605,11 +643,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if context.user_data.get("mode") == "join_group":
         group_name = text.strip().upper()
-        groups = [g.upper() for g in get_all_groups()]
 
-        if group_name not in groups:
+        groups = get_all_groups()
+
+        # 🔥 关键：统一大写比较
+        groups_upper = [g.upper() for g in groups]
+
+        if group_name not in groups_upper:
             return await update.message.reply_text("❌ 請點按按鈕選擇分組")
-
         limit = get_group_limit(group_name)
         count = count_group_members(group_name)
 
@@ -662,6 +703,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text in ["📊 分组总数", "📊 分組總數"]:
         return await group_total_stats(update, context)
 
+    if text in ["📈 分组数据"]:
+        return await group_total_stats(update, context)
+
+    if text in ["📊 分组详细"]:
+        return await group_detail(update, context)
+    
     if text in ["📅 每月报表", "📅 每月報表"]:
         return await monthly(update, context)
 
