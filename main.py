@@ -674,6 +674,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_menu()
         )
 
+    # ===== 2️⃣ 再處理填報 =====
+        handled = await handle_report(update, context)
+        if handled:
+            return
+
     # ===== 3️⃣ 再處理按鈕 =====
 
     if text in ["🔙 返回主選單", "返回主選單"]:
@@ -738,11 +743,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 one_time_keyboard=True
             )
         )
-    # ===== 2️⃣ 再處理填報 =====
-    if context.user_data.get("mode") not in ["create_group", "join_group"]:
-        handled = await handle_report(update, context)
-        if handled:
-            return
+    
 # ===== RUN =====
 def main():
     init_db()   # ⭐ 就加这一行
