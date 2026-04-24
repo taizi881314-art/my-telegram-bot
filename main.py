@@ -680,51 +680,51 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
 
     # ⭐⭐⭐ 4️⃣ 菜单功能 ⭐⭐⭐
-    if text in ["🔙 返回主選單", "返回主選單"]:
+    if "返回主選單" in text:
         context.user_data.clear()
         return await update.message.reply_text("返回主選單", reply_markup=main_menu())
 
-    if text in ["📝 填报数据", "📝 填報數據"]:
+    if "填报数据" in text or "填報數據" in text:
         return await update.message.reply_text("選擇項目", reply_markup=report_menu())
 
-    if text in ["📊 查看数据", "📊 查看數據"]:
+    if "查看数据" in text or "查看數據" in text:
         return await view_data(update, context)
 
-    if text in ["🏆 排行榜"]:
+    if "排行榜" in text:
         return await ranking(update, context)
 
-    if text in ["📤 导出数据"]:
+    if "导出数据" in text or "導出數據" in text:
         return await export_data(update, context)
 
-    if text in ["📊 分组总数", "📊 分組總數"]:
+    if "分组总数" in text or "分組總數" in text:
         return await group_total_stats(update, context)
 
-    if text in ["📈 分组数据"]:
+    if "分组数据" in text or "分組數據" in text:
         return await group_total_stats(update, context)
 
-    if text in ["📊 分组详细"]:
+    if "分组详细" in text or "分組詳細" in text:
         return await group_detail(update, context)
     
-    if text in ["📅 每月报表", "📅 每月報表"]:
+    if "每月报表" in text or "每月報表" in text:
         return await monthly(update, context)
 
-    if text in ["👥 分组管理", "👥 分組管理"]:
+    if "分组管理" in text or "分組管理" in text:
         return await group_manage_menu(update, context)
 
-    if text in ["👥 查看分組成員"]:
+    if "查看分組成員" in text:
         return await view_group_members(update, context)
 
-    if text in ["👤 我的分組"]:
+    if "我的分組" in text:
         return await my_group(update, context)
 
-    if text in ["➕ 建立分組", "+ 建立分組"]:
+    if "建立分組" in text:
         if not await is_admin(update, context):
             return await update.message.reply_text("❌ 只有管理員可以建立分組")
 
         context.user_data["mode"] = "create_group"
         return await update.message.reply_text("請輸入分組名稱")
 
-    if text in ["👤 加入分組"]:
+    if "加入分組" in text:
         groups = get_all_groups()
 
         if not groups:
