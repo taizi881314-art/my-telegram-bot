@@ -541,7 +541,7 @@ async def monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===== 填報 =====
 async def handle_report(update, context):
     with get_cursor() as (conn, c):
-        text = update.message.text.strip()
+        text = normalize_text(update.message.text)
         user_id = update.effective_user.id
 
         c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
@@ -606,7 +606,7 @@ async def handle_report(update, context):
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
-    text = update.message.text.strip()
+    text = normalize_text(update.message.text)
     name = update.effective_user.first_name
 
     # ⭐⭐⭐ 1️⃣ 先处理流程状态（最重要）⭐⭐⭐
@@ -678,10 +678,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ON CONFLICT (user_id) DO NOTHING
         """, (user_id, name, None))
         conn.commit()
-    # ⭐⭐⭐ 3️⃣ 填报流程 ⭐⭐⭐
-    handled = await handle_report(update, context)
-    if handled:
-        return
 
     # ⭐⭐⭐ 4️⃣ 菜单功能 ⭐⭐⭐
     if text in ["🔙 返回主選單", "返回主選單"]:
@@ -747,6 +743,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 one_time_keyboard=True
             )
         )
+    # ⭐⭐⭐ 3️⃣ 填报流程 ⭐⭐⭐
+    handled = await handle_report(update, context)
+    if handled:
+        return
    
 # ===== RUN =====
 def main():
