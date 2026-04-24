@@ -36,140 +36,128 @@ async def is_group_owner(update, group_name):
     owner = get_group_owner(group_name)
     return update.effective_user.id == owner
 
-# ===== PostgreSQL DB =====
-conn = psycopg2.connect(
-    DATABASE_URL,
-    sslmode='require',
-    connect_timeout=10
-)
-conn.autocommit = False
-c = conn.cursor()
+from contextlib import contextmanager
 
+@contextmanager
 def get_cursor():
-    global conn, c   # ⭐ 必加
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.autocommit = True
+    cursor = conn.cursor()
     try:
-        c.execute("SELECT 1")
-    except Exception as e:
-        print("⚠️ DB 斷線，重新連接...", e)
-        conn = psycopg2.connect(
-            DATABASE_URL,
-            sslmode='require',
-            connect_timeout=10
+        yield conn, cursor
+    finally:
+        cursor.close()
+        conn.close()
+
+# ===============================
+# ✅⭐⭐⭐ 就插在这里（唯一正确位置）⭐⭐⭐
+# ===============================
+def init_db():
+    with get_cursor() as (conn, c):
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id BIGINT PRIMARY KEY,
+            name TEXT,
+            group_name TEXT
         )
-        conn.autocommit = False
-        c = conn.cursor()
-    return c
+        """)
 
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS groups (
+            name TEXT PRIMARY KEY,
+            owner_id BIGINT,
+            max_members INT DEFAULT 10
+        )
+        """)
 
-# ===============================
-# ✅ 1️⃣ 建立所有資料表（順序很重要）
-# ===============================
-c.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id BIGINT PRIMARY KEY,
-    name TEXT,
-    group_name TEXT
-)
-""")
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS stats (
+            user_id BIGINT,
+            date DATE,
+            group_name TEXT,
+            打粉 INT DEFAULT 0,
+            回復 INT DEFAULT 0,
+            新增 INT DEFAULT 0,
+            回訪 INT DEFAULT 0,
+            熱聊 INT DEFAULT 0,
+            PRIMARY KEY (user_id, date)
+        )
+        """)
 
-c.execute("""
-CREATE TABLE IF NOT EXISTS groups (
-    name TEXT PRIMARY KEY,
-    owner_id BIGINT,
-    max_members INTEGER DEFAULT 10
-)
-""")
-
-c.execute("""
-CREATE TABLE IF NOT EXISTS stats (
-    user_id BIGINT,
-    date DATE,
-    group_name TEXT,
-    打粉 INTEGER DEFAULT 0,
-    回復 INTEGER DEFAULT 0,
-    新增 INTEGER DEFAULT 0,
-    回訪 INTEGER DEFAULT 0,
-    熱聊 INTEGER DEFAULT 0,
-    UNIQUE(user_id, date),
-    FOREIGN KEY (user_id) REFERENCES users(user_id)
-)
-""")
-
-conn.commit()
-
+        conn.commit()
+        conn.close()
 
 # ===============================
 # ✅ 2️⃣ 修正分組 + 同步 groups
 # ===============================
 def fix_group_case():
-    c = get_cursor()
+    with get_cursor() as (conn, c):
 
-    # 統一大小寫
-    c.execute("UPDATE users SET group_name = UPPER(group_name)")
-    c.execute("UPDATE stats SET group_name = UPPER(group_name)")
+        # 統一大小寫
+        c.execute("UPDATE users SET group_name = UPPER(group_name)")
+        c.execute("UPDATE stats SET group_name = UPPER(group_name)")
 
-    # 同步 groups 表
-    c.execute("""
-    INSERT INTO groups (name)
-    SELECT DISTINCT UPPER(group_name)
-    FROM users
-    WHERE group_name IS NOT NULL
-    ON CONFLICT DO NOTHING
-    """)
+        # 同步 groups 表
+        c.execute("""
+        INSERT INTO groups (name)
+        SELECT DISTINCT UPPER(group_name)
+        FROM users
+        WHERE group_name IS NOT NULL
+        ON CONFLICT DO NOTHING
+        """)
 
-    conn.commit()
-    print("✅ 分組大小寫已統一 + groups 同步完成")
+        conn.commit()
+        print("✅ 分組大小寫已統一 + groups 同步完成")
 
 # ⭐ 正確順序
 
 def get_all_groups():
-    c = get_cursor()
-    c.execute("SELECT name FROM groups ORDER BY name")
-    return [row[0] for row in c.fetchall()]
+    with get_cursor() as (conn, c):
+        c.execute("SELECT name FROM groups ORDER BY name")
+        return [row[0] for row in c.fetchall()]
 
 
 def get_group_owner(group_name):
-    c = get_cursor()
-    c.execute("SELECT owner_id FROM groups WHERE name=%s", (group_name,))
-    r = c.fetchone()
-    return r[0] if r else None
+    with get_cursor() as (conn, c):
+        c.execute("SELECT owner_id FROM groups WHERE name=%s", (group_name,))
+        r = c.fetchone()
+        return r[0] if r else None
 
 
 def count_group_members(group_name):
-    c = get_cursor()
-    c.execute("SELECT COUNT(*) FROM users WHERE group_name=%s", (group_name,))
-    return c.fetchone()[0]
+    with get_cursor() as (conn, c):
+        c.execute("SELECT COUNT(*) FROM users WHERE group_name=%s", (group_name,))
+        return c.fetchone()[0]
 
 
 def get_group_limit(group_name):
-    c = get_cursor()
-    c.execute("SELECT max_members FROM groups WHERE name=%s", (group_name,))
-    r = c.fetchone()
-    return r[0] if r else 10
+    
+
+    with get_cursor() as (conn, c):
+        c.execute("SELECT max_members FROM groups WHERE name=%s", (group_name,))
+        r = c.fetchone()
+        return r[0] if r else 10
 
 def today():
     return datetime.now().date()  # 保持這個即可 ✅
 # ===== 30天清理 =====
 def clean_old_data():
-    c = get_cursor()
-    limit_date = datetime.now().date() - timedelta(days=30)
-    c.execute("DELETE FROM stats WHERE date < %s", (limit_date,))
-    conn.commit()
-    
+    with get_cursor() as (conn, c):
+        limit_date = datetime.now().date() - timedelta(days=30)
+        c.execute("DELETE FROM stats WHERE date < %s", (limit_date,))
 # ===== 自動備份（穩定版）=====
 def backup_db():
-    c = get_cursor()
+    with get_cursor() as (conn, c):
+        c.execute("SELECT * FROM users")
+        users = c.fetchall()
 
-    c.execute("SELECT * FROM users")
-    users = c.fetchall()
+        c.execute("SELECT * FROM stats")
+        stats = c.fetchall()
 
-    c.execute("SELECT * FROM stats")
-    stats = c.fetchall()
-
-    print("✅ 備份成功（記憶體版）")
-    print("users:", users[:3])
-    print("stats:", stats[:3])
-
+        print("✅ 備份成功（記憶體版）")
+        print("users:", users[:3])
+        print("stats:", stats[:3])
 # ===== 主選單 =====
 def main_menu():
     return ReplyKeyboardMarkup([
@@ -188,112 +176,112 @@ def group_menu():
 
 # ===== 分組成員 =====
 async def view_group_members(update, context):
-    c = get_cursor()   # ⭐加這行
+    with get_cursor() as (conn, c):
+        c.execute("""
+        SELECT COALESCE(group_name,'未分組'), name
+        FROM users
+        ORDER BY group_name
+        """)
 
-    c.execute("""
-    SELECT COALESCE(group_name,'未分組'), name
-    FROM users
-    ORDER BY group_name
-    """)
+        rows = c.fetchall()
 
-    rows = c.fetchall()
+        msg = "👥 分組成員\n\n"
 
-    msg = "👥 分組成員\n\n"
+        current_group = None
 
-    current_group = None
+        for g, name in rows:
+            if g != current_group:
+                msg += f"\n【{g}】\n"
+                current_group = g
+            msg += f"- {name}\n"
 
-    for g, name in rows:
-        if g != current_group:
-            msg += f"\n【{g}】\n"
-            current_group = g
-        msg += f"- {name}\n"
-
-    await update.message.reply_text(msg, reply_markup=group_menu())
+        await update.message.reply_text(msg, reply_markup=group_menu())
     
 # ===== 查看自己分組 =====
 async def my_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    c = get_cursor()
+    with get_cursor() as (conn, c):
 
-    c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
-    result = c.fetchone()
+        c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
+        result = c.fetchone()
 
-    if not result or not result[0]:
-        msg = "❌ 你目前尚未加入任何分組"
-    else:
-        msg = f"👤 你目前所在分組：{result[0]}"
+        if not result or not result[0]:
+            msg = "❌ 你目前尚未加入任何分組"
+        else:
+            msg = f"👤 你目前所在分組：{result[0]}"
 
-    await update.message.reply_text(msg, reply_markup=group_menu())
+        await update.message.reply_text(msg, reply_markup=group_menu())
     
 # ===== 導出 Excel（完整版本）=====
 async def export_data(update, context):
     try:
-        c = get_cursor()
-        clean_old_data()
-        print("开始导出")
+        with get_cursor() as (conn, c):
+            clean_old_data()
+            print("开始导出")
 
-        # 今日数据
-        c.execute("""
-        SELECT u.user_id, u.name, COALESCE(u.group_name,'未分組'),
-        COALESCE(s.打粉,0), COALESCE(s.回復,0), COALESCE(s.新增,0),
-        COALESCE(s.回訪,0), COALESCE(s.熱聊,0)
-        FROM users u
-        LEFT JOIN stats s
-        ON u.user_id = s.user_id AND s.date=%s
-        """,(today(),))
-        today_rows = c.fetchall()
+            # 今日数据
+            c.execute("""
+            SELECT u.user_id, u.name, COALESCE(u.group_name,'未分組'),
+            COALESCE(s.打粉,0), COALESCE(s.回復,0), COALESCE(s.新增,0),
+            COALESCE(s.回訪,0), COALESCE(s.熱聊,0)
+            FROM users u
+            LEFT JOIN stats s
+            ON u.user_id = s.user_id AND s.date=%s
+            """,(today(),))
+            today_rows = c.fetchall()
 
-        # 本月数据
-        c.execute("""
-        SELECT user_id,
-        SUM(打粉), SUM(回復), SUM(新增),
-        SUM(回訪), SUM(熱聊)
-        FROM stats
-        WHERE to_char(date::date, 'YYYY-MM') = to_char(NOW(), 'YYYY-MM')
-        GROUP BY user_id
-        """)
-        month_data = {row[0]: row[1:] for row in c.fetchall()}
+            # 本月数据
+            c.execute("""
+            SELECT user_id,
+            SUM(打粉), SUM(回復), SUM(新增),
+            SUM(回訪), SUM(熱聊)
+            FROM stats
+            WHERE to_char(date::date, 'YYYY-MM') = to_char(NOW(), 'YYYY-MM')
+            GROUP BY user_id
+            """)
+            month_data = {row[0]: row[1:] for row in c.fetchall()}
 
-        data = []
+            data = []
 
-        for r in today_rows:
-            user_id = r[0]
-            name = r[1]
-            group = r[2]
+            for r in today_rows:
+                user_id = r[0]
+                name = r[1]
+                group = r[2]
 
-            today_vals = r[3:8]
-            month_vals = month_data.get(user_id, (0,0,0,0,0))
+                today_vals = r[3:8]
+                month_vals = month_data.get(user_id, (0,0,0,0,0))
 
-            data.append([
-                group, name,
-                today_vals[0], month_vals[0],
-                today_vals[1], month_vals[1],
-                today_vals[2], month_vals[2],
-                today_vals[3], month_vals[3],
-                today_vals[4], month_vals[4],
+                data.append([
+                    group, name,
+                    today_vals[0], month_vals[0],
+                    today_vals[1], month_vals[1],
+                    today_vals[2], month_vals[2],
+                    today_vals[3], month_vals[3],
+                    today_vals[4], month_vals[4],
+                ])
+
+            if not data:
+                return await update.message.reply_text("❌ 沒有數據可導出")
+
+            df = pd.DataFrame(data, columns=[
+                "分組","姓名",
+                "今日打粉","本月打粉",
+                "今日回復","本月回復",
+                "今日新增","本月新增",
+                "今日回訪","本月回訪",
+                "今日熱聊","本月熱聊"
             ])
 
-        if not data:
-            return await update.message.reply_text("❌ 沒有數據可導出")
+            file_name = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            df.to_excel(file_name, index=False)
+            with open(file_name, "rb") as f:
+                await update.message.reply_document(document=f)
+            os.remove(file_name)   # ⭐⭐⭐ 加這行
 
-        df = pd.DataFrame(data, columns=[
-            "分組","姓名",
-            "今日打粉","本月打粉",
-            "今日回復","本月回復",
-            "今日新增","本月新增",
-            "今日回訪","本月回訪",
-            "今日熱聊","本月熱聊"
-        ])
-
-        file_name = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        df.to_excel(file_name, index=False)
-        with open(file_name, "rb") as f:
-            await update.message.reply_document(document=f)
-
-    except Exception as e:
-        print("导出错误：", e)
-        await update.message.reply_text(f"❌ 导出失败：{e}")
+        except Exception as e:
+            print("导出错误：", e)
+            await update.message.reply_text(f"❌ 导出失败：{e}")
 # ===== 填報選單 =====
 def report_menu():
     return ReplyKeyboardMarkup([
@@ -304,15 +292,15 @@ def report_menu():
 
 # ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    c = get_cursor()   # ⭐加這行
-    user = update.effective_user
+    with get_cursor() as (conn, c):
+        user = update.effective_user
 
-    c.execute("""
-        INSERT INTO users (user_id, name, group_name)
-        VALUES (%s,%s,%s)
-        ON CONFLICT (user_id) DO NOTHING
-        """, (user.id, user.first_name, None))
-    conn.commit()
+        c.execute("""
+            INSERT INTO users (user_id, name, group_name)
+            VALUES (%s,%s,%s)
+            ON CONFLICT (user_id) DO NOTHING
+            """, (user.id, user.first_name, None))
+        conn.commit()
 
     await update.message.reply_text(
         "📊 打粉統計機器人已啟動",
@@ -348,368 +336,321 @@ async def group_manage_menu(update, context):
 # ✅【修改】查看數據（只改這一個 function）
 # ===============================
 async def view_data(update, context):
-    c = get_cursor()   # ⭐⭐⭐ 就是你在找的這行
-    clean_old_data()
+    with get_cursor() as (conn, c):
+        clean_old_data()
 
-    user_id = update.effective_user.id
-    admin = await is_admin(update, context)
+        user_id = update.effective_user.id
+        admin = await is_admin(update, context)
 
-    # 👉 先取得自己的分組
-    c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
-    result = c.fetchone()
-    group_name = result[0] if result else None
+        # 👉 先取得自己的分組
+        c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
+        result = c.fetchone()
+        group_name = result[0] if result else None
 
-    if admin:
-        # ✅ 管理員看全部
-        c.execute("""
-        SELECT u.group_name, u.name,
-        s.打粉,s.回復,s.新增,s.回訪,s.熱聊
-        FROM users u
-        LEFT JOIN stats s
-        ON u.user_id=s.user_id AND s.date=%s
-        """,(today(),))
-    else:
-        # ✅ 成員：看自己 + 同分組
-        c.execute("""
-        SELECT u.group_name, u.name,
-        s.打粉,s.回復,s.新增,s.回訪,s.熱聊
-        FROM users u
-        LEFT JOIN stats s
-        ON u.user_id=s.user_id AND s.date=%s
-        WHERE u.user_id=%s 
-           OR COALESCE(u.group_name,'')=COALESCE(%s, '')
-        """,(today(), user_id, group_name))
+        if admin:
+            # ✅ 管理員看全部
+            c.execute("""
+            SELECT u.group_name, u.name,
+            s.打粉,s.回復,s.新增,s.回訪,s.熱聊
+            FROM users u
+            LEFT JOIN stats s
+            ON u.user_id=s.user_id AND s.date=%s
+            """,(today(),))
+        else:
+            # ✅ 成員：看自己 + 同分組
+            c.execute("""
+            SELECT u.group_name, u.name,
+            s.打粉,s.回復,s.新增,s.回訪,s.熱聊
+            FROM users u
+            LEFT JOIN stats s
+            ON u.user_id=s.user_id AND s.date=%s
+            WHERE u.user_id=%s 
+               OR COALESCE(u.group_name,'')=COALESCE(%s, '')
+            """,(today(), user_id, group_name))
 
-    rows = c.fetchall()
+        rows = c.fetchall()
 
-    if not rows:
-        return await update.message.reply_text("❌ 沒有數據")
+        if not rows:
+            return await update.message.reply_text("❌ 沒有數據")
 
-    msg = "📊 今日數據\n\n"
+        msg = "📊 今日數據\n\n"
 
-    for r in rows:
-        msg += f"【{r[0] or '未分組'}】{r[1]}\n"
-        msg += f"打粉：{r[2] or 0} 回復：{r[3] or 0} 新增：{r[4] or 0} 回訪：{r[5] or 0} 熱聊：{r[6] or 0}\n\n"
+        for r in rows:
+            msg += f"【{r[0] or '未分組'}】{r[1]}\n"
+            msg += f"打粉：{r[2] or 0} 回復：{r[3] or 0} 新增：{r[4] or 0} 回訪：{r[5] or 0} 熱聊：{r[6] or 0}\n\n"
 
-    await update.message.reply_text(msg)
+        await update.message.reply_text(msg)
 
 # ===== 手動排行榜（⭐加在這裡）=====
 async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    c = get_cursor()
-    clean_old_data()
+    with get_cursor() as (conn, c):
+        clean_old_data()
 
-    c.execute("""
-    SELECT u.name,
-           COALESCE(s.打粉,0)
-    FROM users u
-    LEFT JOIN stats s
-        ON u.user_id = s.user_id AND s.date = %s
-    ORDER BY COALESCE(s.打粉,0) DESC
-    LIMIT 10
-    """, (today(),))
+        c.execute("""
+        SELECT u.name,
+               COALESCE(s.打粉,0)
+        FROM users u
+        LEFT JOIN stats s
+            ON u.user_id = s.user_id AND s.date = %s
+        ORDER BY COALESCE(s.打粉,0) DESC
+        LIMIT 10
+        """, (today(),))
 
-    rows = c.fetchall()
+        rows = c.fetchall()
 
-    if not rows:
-        return await update.message.reply_text("❌ 今日沒有數據")
+        if not rows:
+            return await update.message.reply_text("❌ 今日沒有數據")
 
-    medals = ["🥇","🥈","🥉"]
+        medals = ["🥇","🥈","🥉"]
 
-    msg = "🏆 今日排行榜\n\n"
+        msg = "🏆 今日排行榜\n\n"
 
-    for i, r in enumerate(rows, 1):
-        medal = medals[i-1] if i <= 3 else f"{i}."
-        msg += f"{medal} {r[0]} 打粉:{r[1]}\n"
+        for i, r in enumerate(rows, 1):
+            medal = medals[i-1] if i <= 3 else f"{i}."
+            msg += f"{medal} {r[0]} 打粉:{r[1]}\n"
 
-    await update.message.reply_text(msg)
-
-# ===== 自動推送排行榜 =====
+        await update.message.reply_text(msg)
+# ===== ⭐⭐⭐ 就放在這裡 ⭐⭐⭐ =====
 async def auto_send_ranking(context: ContextTypes.DEFAULT_TYPE):
-    c = get_cursor()
-    conn.commit()  # ⭐ 就加在這裡（最重要）
-    clean_old_data()
+    with get_cursor() as (conn, c):
+        clean_old_data()
 
-    # ===== 個人排行榜 =====
-    c.execute("""
-    SELECT u.name,
-           COALESCE(s.打粉,0),
-           COALESCE(s.回復,0),
-           COALESCE(s.新增,0),
-           COALESCE(s.回訪,0),
-           COALESCE(s.熱聊,0)
-    FROM users u
-    LEFT JOIN stats s
-        ON u.user_id = s.user_id AND s.date = %s
-    ORDER BY COALESCE(s.打粉,0) DESC
-    LIMIT 10
-    """, (today(),))
+        c.execute("""
+        SELECT u.name,
+               COALESCE(s.打粉,0)
+        FROM users u
+        LEFT JOIN stats s
+            ON u.user_id = s.user_id AND s.date = %s
+        ORDER BY COALESCE(s.打粉,0) DESC
+        LIMIT 10
+        """, (today(),))
 
-    rows = c.fetchall()
-    if not rows:
-        return
+        rows = c.fetchall()
 
-    medals = ["🥇", "🥈", "🥉"]
+        if not rows:
+            return
 
-    msg = "🏆 今日排行榜\n\n"
+        medals = ["🥇","🥈","🥉"]
+        msg = "🏆 今日排行榜（自動）\n\n"
 
-    for i, r in enumerate(rows, 1):
-        medal = medals[i-1] if i <= 3 else f"{i}."
-        msg += (
-            f"{medal} {r[0]}\n"
-            f"👉 打粉:{r[1]} 回復:{r[2]} 新增:{r[3]} 回訪:{r[4]} 熱聊:{r[5]}\n\n"
+        for i, r in enumerate(rows, 1):
+            medal = medals[i-1] if i <= 3 else f"{i}."
+            msg += f"{medal} {r[0]} 打粉:{r[1]}\n"
+
+        await context.bot.send_message(
+            chat_id=GROUP_CHAT_ID,
+            text=msg
         )
 
-    # ===== 分組排行榜 =====
-    c.execute("""
-    SELECT 
-        COALESCE(u.group_name,'未分組'),
-        SUM(COALESCE(s.打粉,0)),
-        SUM(COALESCE(s.回復,0)),
-        SUM(COALESCE(s.新增,0)),
-        SUM(COALESCE(s.回訪,0)),
-        SUM(COALESCE(s.熱聊,0))
-    FROM users u
-    LEFT JOIN stats s 
-        ON u.user_id = s.user_id 
-        AND s.date = %s
-    GROUP BY COALESCE(u.group_name,'未分組')
-    ORDER BY SUM(COALESCE(s.打粉,0)) DESC
-    """, (today(),))
 
-    group_rows = c.fetchall()
-
-    msg += "🏆 分組排行榜\n\n"
-
-    for i, r in enumerate(group_rows, 1):
-        medal = medals[i-1] if i <= 3 else f"{i}."
-        msg += (
-            f"{medal} {r[0]}\n"
-            f"👉 打粉:{r[1]} 回復:{r[2]} 新增:{r[3]} 回訪:{r[4]} 熱聊:{r[5]}\n\n"
-        )
-
-    await context.bot.send_message(
-        chat_id=GROUP_CHAT_ID,
-        text=msg
-    )
 # ===== 分組數據（所有小組總數）=====
 async def group_total_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    c = get_cursor()   # ⭐加這行
+    with get_cursor() as (conn, c):
+        c.execute("""
+        SELECT 
+            COALESCE(u.group_name,'未分組'),
+            SUM(s.打粉),SUM(s.回復),SUM(s.新增),
+            SUM(s.回訪),SUM(s.熱聊)
+        FROM users u
+        LEFT JOIN stats s 
+            ON u.user_id = s.user_id 
+            AND s.date = %s
+        GROUP BY COALESCE(u.group_name,'未分組')
+        """, (today(),))
 
-    c.execute("""
-    SELECT 
-        COALESCE(u.group_name,'未分組'),
-        SUM(s.打粉),SUM(s.回復),SUM(s.新增),
-        SUM(s.回訪),SUM(s.熱聊)
-    FROM users u
-    LEFT JOIN stats s 
-        ON u.user_id = s.user_id 
-        AND s.date = %s
-    GROUP BY COALESCE(u.group_name,'未分組')
-    """,(today(),))
+        rows = c.fetchall()
 
-    rows = c.fetchall()
+        msg = "📊 分組總數（今日）\n\n"
+        has_data = False
 
-    msg = "📊 分組總數（今日）\n\n"
-    has_data = False
+        for r in rows:
+            total = sum([x or 0 for x in r[1:]])
+            if total > 0:
+                has_data = True
 
-    for r in rows:
-        total = sum([x or 0 for x in r[1:]])
-        if total > 0:
-            has_data = True
+            msg += f"【{r[0]}】\n"
+            msg += f"打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n\n"
 
-        msg += f"【{r[0]}】\n"
-        msg += f"打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n\n"
+        if not has_data:
+            msg = "❌ 今日還沒有任何數據"
 
-    if not has_data:
-        msg = "❌ 今日還沒有任何數據"
+        await update.message.reply_text(msg, reply_markup=main_menu())
 
-    await update.message.reply_text(msg, reply_markup=main_menu())
-    
+
 # ===== 每月 =====
 async def monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    c = get_cursor()   # ⭐加這行
-    clean_old_data()
+    with get_cursor() as (conn, c):
+        clean_old_data()
 
-    c.execute("""
-        SELECT u.name,
-        SUM(s.打粉),SUM(s.回復),SUM(s.新增),SUM(s.回訪),SUM(s.熱聊)
-        FROM users u
-        LEFT JOIN stats s ON u.user_id=s.user_id
-        WHERE DATE_TRUNC('month', s.date) = DATE_TRUNC('month', %s)
-        GROUP BY u.user_id
-    """, (today(),))
+        c.execute("""
+            SELECT u.name,
+            SUM(s.打粉),SUM(s.回復),SUM(s.新增),SUM(s.回訪),SUM(s.熱聊)
+            FROM users u
+            LEFT JOIN stats s ON u.user_id=s.user_id
+            WHERE DATE_TRUNC('month', s.date) = DATE_TRUNC('month', %s)
+            GROUP BY u.user_id
+        """, (today(),))
 
-    rows = c.fetchall()
+        rows = c.fetchall()
 
-    msg = "📅 本月報表\n\n"
+        msg = "📅 本月報表\n\n"
 
-    for r in rows:
-        msg += f"{r[0]} 打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n"
+        for r in rows:
+            msg += f"{r[0]} 打粉:{r[1] or 0} 回復:{r[2] or 0} 新增:{r[3] or 0} 回訪:{r[4] or 0} 熱聊:{r[5] or 0}\n"
 
-    await update.message.reply_text(msg, reply_markup=main_menu())
+        await update.message.reply_text(msg, reply_markup=main_menu())
+
 
 # ===== 填報 =====
 async def handle_report(update, context):
-    c = get_cursor()   # ⭐加這行
-    text = update.message.text.strip()
-    user_id = update.effective_user.id
+    with get_cursor() as (conn, c):
+        text = update.message.text.strip()
+        user_id = update.effective_user.id
 
-    # ✅ 加在這裡（防亂填報）
-    c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
-    result = c.fetchone()
+        c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
+        result = c.fetchone()
 
-    if not result or not result[0]:
-        return await update.message.reply_text(
-        "❌ 你還沒加入分組\n👉 請先到「分組管理」加入分組"
-    )
-
-    mapping = {
-        "今日打粉":"打粉",
-        "今日回復":"回復",
-        "今日新增":"新增",
-        "今日回訪":"回訪",
-        "今日熱聊":"熱聊"
-    }
-
-    # 👉 点击按钮
-    if text in mapping:
-        context.user_data["field"] = mapping[text]
-        await update.message.reply_text(
-            f"📌 請輸入【{text}】數量（輸入數字）"
-        )
-        return True
-
-    # 👉 没在填报状态
-    if "field" not in context.user_data:
-        return False
-
-    # 👉 输入数值
-    try:
-        value = int(text)
-    except:
-        await update.message.reply_text("❌ 請輸入數字")
-        return True
-
-    field = context.user_data["field"]
-
-    # 👉 获取分组
-    c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
-    result = c.fetchone()
-    group = result[0] if result else None
-    
-    # 👉 初始化（关键）
-    c.execute("""
-INSERT INTO stats 
-(user_id, date, group_name, 打粉, 回復, 新增, 回訪, 熱聊)
-VALUES (%s,%s,%s,0,0,0,0,0)
-ON CONFLICT (user_id, date) DO NOTHING
-""", (user_id, today(), group))
-
-    # 👉 更新分组（关键）
-    c.execute("""
-UPDATE stats SET group_name=%s
-WHERE user_id=%s AND date=%s
-""", (group, user_id, today()))
-
-    # 👉 更新数据
-    c.execute(
-        f'UPDATE stats SET "{field}" = COALESCE("{field}",0) + %s WHERE user_id=%s AND date=%s',
-        (value, user_id, today())
-    )
-    conn.commit()
-
-    context.user_data.clear()
-
-    await update.message.reply_text(f"✅ 已記錄 {field}: {value}")
-
-    return True
-    
-# ===== handle =====
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    c = get_cursor()   # ⭐一定要加
-    user_id = update.effective_user.id   # ⭐⭐⭐ 一定要先放這
-    text = update.message.text.strip()
-
-    # ⭐⭐⭐ 放這裡（限制）
-    c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
-    result = c.fetchone()
-
-    # ✅ 就是這裡（唯一正確位置）
-    user_id = update.effective_user.id
-    name = update.effective_user.first_name
-
-    c.execute("""
-    INSERT INTO users (user_id, name, group_name)
-    VALUES (%s,%s,%s)
-    ON CONFLICT (user_id) DO NOTHING
-    """, (user_id, name, None))
-    conn.commit()
-
-    # 👇 原本程式
-    text = update.message.text.strip()
-    
-    # ===== 覆蓋確認（⭐一定要放最前面）=====
-    if context.user_data.get("confirm_override"):
-        if text == "確認":
-            group_name = context.user_data.get("pending_group")
-
-            c.execute("UPDATE users SET group_name=%s WHERE user_id=%s",
-                      (group_name, update.effective_user.id))
-            conn.commit()
-
-            context.user_data.clear()
-            return await update.message.reply_text(
-                f"✅ 已覆蓋並建立新分組：{group_name}",
-                reply_markup=group_menu()
+        if not result or not result[0]:
+            await update.message.reply_text(
+                "❌ 你還沒加入分組\n👉 請先到「分組管理」加入分組"
             )
-        elif text == "取消":
-            context.user_data.clear()
-            return await update.message.reply_text(
-                "❌ 已取消操作",
-                reply_markup=group_menu()
-            )
-        else:
-            return await update.message.reply_text("請輸入【確認】或【取消】")
-        
-    # ===== 返回主选单 =====
-    if text in ["🔙 返回主選單", "返回主選單"]:
-        context.user_data.clear()
-        return await update.message.reply_text("返回主選單", reply_markup=main_menu())
+            return True
 
-    # ===== 建立分組流程 =====
-    if context.user_data.get("mode") == "create_group":
-        if any(text.startswith(x) for x in ["📊","👥","🏆","📈","📤","👤","📝"]):
-             return await update.message.reply_text("❌ 請輸入分組名稱")
-        group_name = text.strip().upper()
+        mapping = {
+            "今日打粉":"打粉",
+            "今日回復":"回復",
+            "今日新增":"新增",
+            "今日回訪":"回訪",
+            "今日熱聊":"熱聊"
+        }
 
-        # ✅ 檢查 groups
-        c.execute("SELECT 1 FROM groups WHERE name=%s", (group_name,))
-        if c.fetchone():
-            return await update.message.reply_text(
-                f"✅ 分組已建立：{group_name}",
-                reply_markup=group_menu()
-            )
-        # ✅ 建立分組（關鍵！！）
+        if text in mapping:
+            context.user_data["field"] = mapping[text]
+            await update.message.reply_text(f"📌 請輸入【{text}】數量（輸入數字）")
+            return True
+
+        if "field" not in context.user_data:
+            return False
+
+        try:
+            value = int(text)
+        except:
+            await update.message.reply_text("❌ 請輸入數字")
+            return True
+
+        field = context.user_data["field"]
+
+        c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
+        result = c.fetchone()
+        group = result[0] if result else None
+
+        c.execute("""
+        INSERT INTO stats 
+        (user_id, date, group_name, 打粉, 回復, 新增, 回訪, 熱聊)
+        VALUES (%s,%s,%s,0,0,0,0,0)
+        ON CONFLICT (user_id, date) DO NOTHING
+        """, (user_id, today(), group))
+
+        c.execute("""
+        UPDATE stats SET group_name=%s
+        WHERE user_id=%s AND date=%s
+        """, (group, user_id, today()))
+
         c.execute(
-            "INSERT INTO groups (name, owner_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
-            (group_name, update.effective_user.id)
-        )
-
-        # 👉 自己加入
-        c.execute(
-            "UPDATE users SET group_name=%s WHERE user_id=%s",
-            (group_name, update.effective_user.id)
+            f'UPDATE stats SET "{field}" = COALESCE("{field}",0) + %s WHERE user_id=%s AND date=%s',
+            (value, user_id, today())
         )
 
         conn.commit()
         context.user_data.clear()
 
-        return await update.message.reply_text(
-            f"✅ 分組已建立：{group_name}",
-            reply_markup=group_menu()
-        )
+        await update.message.reply_text(f"✅ 已記錄 {field}: {value}")
+        return True
+
+
+# ===== handle =====
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    with get_cursor() as (conn, c):
+        user_id = update.effective_user.id
+        text = update.message.text.strip()
+
+        c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
+        result = c.fetchone()
+
+        user_id = update.effective_user.id
+        name = update.effective_user.first_name
+
+        c.execute("""
+        INSERT INTO users (user_id, name, group_name)
+        VALUES (%s,%s,%s)
+        ON CONFLICT (user_id) DO NOTHING
+        """, (user_id, name, None))
+        conn.commit()
+
+        text = update.message.text.strip()
+
+        if context.user_data.get("confirm_override"):
+            if text == "確認":
+                group_name = context.user_data.get("pending_group")
+
+                c.execute("UPDATE users SET group_name=%s WHERE user_id=%s",
+                          (group_name, update.effective_user.id))
+                conn.commit()
+
+                context.user_data.clear()
+                return await update.message.reply_text(
+                    f"✅ 已覆蓋並建立新分組：{group_name}",
+                    reply_markup=group_menu()
+                )
+
+            elif text == "取消":
+                context.user_data.clear()
+                return await update.message.reply_text(
+                    "❌ 已取消操作",
+                    reply_markup=group_menu()
+                )
+
+            else:
+                return await update.message.reply_text("請輸入【確認】或【取消】")
+        
+        # ===== 返回主选单 =====
+        if text in ["🔙 返回主選單", "返回主選單"]:
             context.user_data.clear()
-            return await update.message.reply_text("❌ 分組已存在", reply_markup=group_menu())
+            return await update.message.reply_text("返回主選單", reply_markup=main_menu())
+
+        # ===== 建立分組流程 =====
+        if context.user_data.get("mode") == "create_group":
+            if any(text.startswith(x) for x in ["📊","👥","🏆","📈","📤","👤","📝"]):
+                 return await update.message.reply_text("❌ 請輸入分組名稱")
+            group_name = text.strip().upper()
+
+            # ✅ 檢查 groups
+            c.execute("SELECT 1 FROM groups WHERE name=%s", (group_name,))
+            if c.fetchone():
+                context.user_data.clear()
+                return await update.message.reply_text(
+                    f"❌ 分組已存在：{group_name}",
+                    reply_markup=group_menu()
+                )
+            # ✅ 建立分組（關鍵！！）
+            c.execute(
+                "INSERT INTO groups (name, owner_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",
+                (group_name, update.effective_user.id)
+            )
+
+            # 👉 自己加入
+            c.execute(
+                "UPDATE users SET group_name=%s WHERE user_id=%s",
+                (group_name, update.effective_user.id)
+            )
+
+            conn.commit()
+            context.user_data.clear()
+
+            return await update.message.reply_text(
+                f"✅ 分組已建立：{group_name}",
+                reply_markup=group_menu()
+            )
 
     # ===== 填報流程（最高優先）=====
     handled = await handle_report(update, context)
@@ -730,52 +671,53 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ===== 組長踢人 =====
     if text.startswith("/kick"):
-        parts = text.split()
+        with get_cursor() as (conn, c):
 
-        if len(parts) != 2:
-            return await update.message.reply_text("❌ 用法：/kick 使用者ID")
+            parts = text.split()
 
-        try:
-            target_id = int(parts[1])
-        except:
-            return await update.message.reply_text("❌ 使用者ID 必須是數字")
+            if len(parts) != 2:
+                return await update.message.reply_text("❌ 用法：/kick 使用者ID")
 
-        # 👉 取得自己分組
-        c.execute("SELECT group_name FROM users WHERE user_id=%s", (update.effective_user.id,))
-        r = c.fetchone()
+            try:
+                target_id = int(parts[1])
+            except:
+                return await update.message.reply_text("❌ 使用者ID 必須是數字")
 
-        if not r or not r[0]:
-            return await update.message.reply_text("❌ 你沒有分組")
+            c.execute("SELECT group_name FROM users WHERE user_id=%s", (update.effective_user.id,))
+            r = c.fetchone()
 
-        group_name = r[0]
+            if not r or not r[0]:
+                return await update.message.reply_text("❌ 你沒有分組")
+
+            group_name = r[0]
         
-        # 1️⃣ 檢查 user 是否存在（⭐先做這個）
-        c.execute("SELECT group_name FROM users WHERE user_id=%s", (target_id,))
-        target = c.fetchone()
+            # 1️⃣ 檢查 user 是否存在（⭐先做這個）
+            c.execute("SELECT group_name FROM users WHERE user_id=%s", (target_id,))
+            target = c.fetchone()
 
-        if not target:
-            return await update.message.reply_text("❌ 該用戶不存在")
-        # ✅ 檢查目標是否在同分組
-        c.execute(
-            "SELECT 1 FROM users WHERE user_id=%s AND group_name=%s",
-            (target_id, group_name)
-        )
-        if not c.fetchone():
-            return await update.message.reply_text("❌ 該用戶不在你的分組")
+            if not target:
+                return await update.message.reply_text("❌ 該用戶不存在")
+            # ✅ 檢查目標是否在同分組
+            c.execute(
+                "SELECT 1 FROM users WHERE user_id=%s AND group_name=%s",
+                (target_id, group_name)
+            )
+            if not c.fetchone():
+                return await update.message.reply_text("❌ 該用戶不在你的分組")
 
-        # 🚨 組長判斷
-        if not await is_group_owner(update, group_name):
-            return await update.message.reply_text("❌ 只有組長可以踢人")
+            # 🚨 組長判斷
+            if not await is_group_owner(update, group_name):
+                return await update.message.reply_text("❌ 只有組長可以踢人")
 
-        # 👉 踢人
-        c.execute(
-            "UPDATE users SET group_name=NULL WHERE user_id=%s AND group_name=%s",
-            (target_id, group_name)
-        )
+            # 👉 踢人
+            c.execute(
+                "UPDATE users SET group_name=NULL WHERE user_id=%s AND group_name=%s",
+                (target_id, group_name)
+            )
 
-        conn.commit()
+            conn.commit()
 
-        return await update.message.reply_text("✅ 已踢出成員")
+            return await update.message.reply_text("✅ 已踢出成員")
 
     # ===== 分組總數 =====
     if text in ["📊 分组总数", "📊 分組總數"]:
@@ -787,21 +729,21 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ===== 分組數據 =====
     if text in ["📈 分组数据", "📈 分組數據"]:
-        c = get_cursor()
-        clean_old_data()
-        c.execute("""
-        SELECT 
-            COALESCE(u.group_name,'未分組'),
-            SUM(s.打粉),SUM(s.回復),SUM(s.新增),
-            SUM(s.回訪),SUM(s.熱聊)
-        FROM users u
-        LEFT JOIN stats s 
-            ON u.user_id = s.user_id 
-            AND s.date = %s
-        GROUP BY COALESCE(u.group_name,'未分組')
-        """,(today(),))
+        with get_cursor() as (conn, c):
+            clean_old_data()
+            c.execute("""
+            SELECT 
+                COALESCE(u.group_name,'未分組'),
+                SUM(s.打粉),SUM(s.回復),SUM(s.新增),
+                SUM(s.回訪),SUM(s.熱聊)
+            FROM users u
+            LEFT JOIN stats s 
+                ON u.user_id = s.user_id 
+                AND s.date = %s
+            GROUP BY COALESCE(u.group_name,'未分組')
+            """,(today(),))
 
-        rows = c.fetchall()
+            rows = c.fetchall()
 
         if not rows:
             return await update.message.reply_text("❌ 沒有分組數據", reply_markup=main_menu())
@@ -824,19 +766,19 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ===== 分組詳細 =====
     if text in ["📊 分组详细", "📊 分組詳細"]:
-        c = get_cursor()
-        clean_old_data()
+        with get_cursor() as (conn, c):
+            clean_old_data()
 
-        user_id = update.effective_user.id
+            user_id = update.effective_user.id
 
-        # ⭐ 一定要重新查
-        c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
-        result = c.fetchone()
+            # ⭐ 一定要重新查
+            c.execute("SELECT group_name FROM users WHERE user_id=%s", (user_id,))
+            result = c.fetchone()
 
         # 再判斷
         if not result or not result[0]:
-            return await update.message.reply_text("❌ 你沒有分組", reply_markup=main_menu())
-
+            await update.message.reply_text("❌ 你還沒加入分組\n👉 請先到「分組管理」加入分組")
+            return True
         group_name = result[0]
 
         c.execute("""
@@ -913,27 +855,28 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ⭐⭐⭐ ⭐⭐⭐ ⭐⭐⭐ 就是要放在這裡 ⭐⭐⭐ ⭐⭐⭐ ⭐⭐⭐
     if context.user_data.get("mode") == "join_group":
-        group_name = text.strip().upper()
+        with get_cursor() as (conn, c):
 
-        groups = [g.upper() for g in get_all_groups()]
+            group_name = text.strip().upper()
 
-        if group_name not in groups:
-            return await update.message.reply_text("❌ 請點按按鈕選擇分組")
+            groups = [g.upper() for g in get_all_groups()]
 
-        # 🚨 人數限制
-        limit = get_group_limit(group_name)
-        count = count_group_members(group_name)
+            if group_name not in groups:
+                return await update.message.reply_text("❌ 請點按按鈕選擇分組")
 
-        if count >= limit:
-            return await update.message.reply_text(f"❌ 此分組已滿（{limit}人）")
+            limit = get_group_limit(group_name)
+            count = count_group_members(group_name)
 
-        # 👉 加入分組
-        c.execute(
-            "UPDATE users SET group_name=%s WHERE user_id=%s",
-            (group_name, user_id)
-        )
+            if count >= limit:
+                return await update.message.reply_text(f"❌ 此分組已滿（{limit}人）")
 
-        conn.commit()
+            c.execute(
+                "UPDATE users SET group_name=%s WHERE user_id=%s",
+                (group_name, user_id)
+            )
+
+            conn.commit()
+
         context.user_data.clear()
 
         return await update.message.reply_text(
@@ -942,9 +885,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 # ===== RUN =====
 def main():
+    init_db()   # ⭐ 就加这一行
     print("DATABASE_URL =", DATABASE_URL)  # ⭐加這行（就這裡）
     
-    get_cursor()      # ✅ 就是加在這裡（第一行）
     fix_group_case()  # 👍 原本就有
 
     app = ApplicationBuilder().token(TOKEN).build()
@@ -957,6 +900,7 @@ def main():
     import pytz
     
     job_queue = app.job_queue  # ⭐⭐⭐ 這行一定要加
+    job_queue.start()   # ⭐⭐⭐ 加這行（保險）
 
     job_queue.run_daily(
         auto_send_ranking,
