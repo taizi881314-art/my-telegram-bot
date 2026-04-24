@@ -608,83 +608,53 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
     name = update.effective_user.first_name
-     # ⭐⭐⭐ 3️⃣ 填报流程 ⭐⭐⭐
-    handled = await handle_report(update, context)
-    if handled:
-        return
 
-    # ⭐⭐⭐ 1️⃣ 先处理流程状态（最重要）⭐⭐⭐
+    # ===== 1️⃣ 先處理「建立分組流程」=====
     if context.user_data.get("mode") == "create_group":
+
+        group_name = text.strip().upper()
+
+        # 防呆（避免點按鈕當名稱）
+        if any(group_name.startswith(x) for x in ["📊","👥","🏆","📈","📤","👤","📝","➕"]):
+            return await update.message.reply_text("❌ 請輸入正確的分組名稱")
+
         with get_cursor() as (conn, c):
 
-            group_name = text.strip().upper()
-
-            if any(group_name.startswith(x) for x in ["📊","👥","🏆","📈","📤","👤","📝"]):
-                return await update.message.reply_text("❌ 請輸入分組名稱")
-
+            # 是否已存在
             c.execute("SELECT 1 FROM groups WHERE name=%s", (group_name,))
             if c.fetchone():
                 context.user_data.clear()
                 return await update.message.reply_text(f"❌ 分組已存在：{group_name}")
 
+            # 建立分組
             c.execute(
                 "INSERT INTO groups (name, owner_id) VALUES (%s,%s)",
                 (group_name, user_id)
             )
 
+            # 自動加入
             c.execute(
                 "UPDATE users SET group_name=%s WHERE user_id=%s",
                 (group_name, user_id)
             )
 
-            conn.commit()
-            context.user_data.clear()
-
-        return await update.message.reply_text(
-            f"✅ 分組已建立：{group_name}",
-            reply_markup=group_menu()
-        )
-
-    if context.user_data.get("mode") == "join_group":
-        group_name = text.strip().upper()
-
-        groups = get_all_groups()
-
-        # 🔥 关键：统一大写比较
-        groups_upper = [g.upper() for g in groups]
-
-        if group_name not in groups_upper:
-            return await update.message.reply_text("❌ 請點按按鈕選擇分組")
-        limit = get_group_limit(group_name)
-        count = count_group_members(group_name)
-
-        if count >= limit:
-            return await update.message.reply_text(f"❌ 此分組已滿（{limit}人）")
-
-        with get_cursor() as (conn, c):
-            c.execute(
-                "UPDATE users SET group_name=%s WHERE user_id=%s",
-                (group_name, user_id)
-            )
             conn.commit()
 
         context.user_data.clear()
+
         return await update.message.reply_text(
-            f"✅ 成功加入分組：{group_name}",
+            f"✅ 分組建立成功：{group_name}",
             reply_markup=main_menu()
         )
 
-    # ⭐⭐⭐ 2️⃣ 再处理数据库注册 ⭐⭐⭐
-    with get_cursor() as (conn, c):
-        c.execute("""
-        INSERT INTO users (user_id, name, group_name)
-        VALUES (%s,%s,%s)
-        ON CONFLICT (user_id) DO NOTHING
-        """, (user_id, name, None))
-        conn.commit()
+    # ===== 2️⃣ 再處理填報 =====
+    handled = await handle_report(update, context)
+    if handled:
+        return
 
-    # ⭐⭐⭐ 4️⃣ 菜单功能 ⭐⭐⭐
-    if "返回主選單" in text:
+    # ===== 3️⃣ 再處理按鈕 =====
+
+    if text in ["🔙 返回主選單", "返回主選單"]:
         context.user_data.clear()
         return await update.message.reply_text("返回主選單", reply_markup=main_menu())
 
@@ -703,12 +673,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "分组总数" in text or "分組總數" in text:
         return await group_total_stats(update, context)
 
-    if "分组数据" in text or "分組數據" in text:
-        return await group_total_stats(update, context)
-
     if "分组详细" in text or "分組詳細" in text:
         return await group_detail(update, context)
-    
+
     if "每月报表" in text or "每月報表" in text:
         return await monthly(update, context)
 
@@ -721,6 +688,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "我的分組" in text:
         return await my_group(update, context)
 
+    # ===== 建立分組按鈕 =====
     if "建立分組" in text:
         if not await is_admin(update, context):
             return await update.message.reply_text("❌ 只有管理員可以建立分組")
@@ -728,6 +696,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["mode"] = "create_group"
         return await update.message.reply_text("請輸入分組名稱")
 
+    # ===== 加入分組 =====
     if "加入分組" in text:
         groups = get_all_groups()
 
