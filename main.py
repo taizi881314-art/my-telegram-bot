@@ -606,8 +606,12 @@ async def handle_report(update, context):
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
-    text = normalize_text(update.message.text)
+    text = update.message.text.strip()
     name = update.effective_user.first_name
+     # ⭐⭐⭐ 3️⃣ 填报流程 ⭐⭐⭐
+    handled = await handle_report(update, context)
+    if handled:
+        return
 
     # ⭐⭐⭐ 1️⃣ 先处理流程状态（最重要）⭐⭐⭐
     if context.user_data.get("mode") == "create_group":
@@ -743,10 +747,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 one_time_keyboard=True
             )
         )
-    # ⭐⭐⭐ 3️⃣ 填报流程 ⭐⭐⭐
-    handled = await handle_report(update, context)
-    if handled:
-        return
    
 # ===== RUN =====
 def main():
