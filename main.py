@@ -647,10 +647,32 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_menu()
         )
 
-    # ===== 2️⃣ 再處理填報 =====
-    handled = await handle_report(update, context)
-    if handled:
-        return
+    # ===== 加入分組流程 =====
+    if context.user_data.get("mode") == "join_group":
+
+        group_name = text.strip()
+
+        with get_cursor() as (conn, c):
+
+            # 確認分組存在
+            c.execute("SELECT 1 FROM groups WHERE name=%s", (group_name,))
+            if not c.fetchone():
+                return await update.message.reply_text("❌ 分組不存在，請重新選擇")
+
+            # 加入分組
+            c.execute(
+                "UPDATE users SET group_name=%s WHERE user_id=%s",
+                (group_name, user_id)
+            )
+
+            conn.commit()
+
+        context.user_data.clear()
+
+        return await update.message.reply_text(
+            f"✅ 已加入分組：{group_name}",
+            reply_markup=main_menu()
+        )
 
     # ===== 3️⃣ 再處理按鈕 =====
 
@@ -716,7 +738,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 one_time_keyboard=True
             )
         )
-   
+    # ===== 2️⃣ 再處理填報 =====
+    if context.user_data.get("mode") not in ["create_group", "join_group"]:
+        handled = await handle_report(update, context)
+        if handled:
+            return
 # ===== RUN =====
 def main():
     init_db()   # ⭐ 就加这一行
