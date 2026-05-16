@@ -675,9 +675,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     # ===== 2️⃣ 再處理填報 =====
-        handled = await handle_report(update, context)
-        if handled:
-            return
+    handled = await handle_report(update, context)
+    if handled:
+        return
 
     # ===== 3️⃣ 再處理按鈕 =====
 
